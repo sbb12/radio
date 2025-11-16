@@ -35,6 +35,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		// Parse the callback request
 		const body: CallbackRequest = await request.json();
 
+        console.log({body})
+
 		const { code, msg, data } = body;
 		let { task_id, callbackType, data: musicData } = data;
 
