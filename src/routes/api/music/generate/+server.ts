@@ -255,7 +255,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		// Forward the response with the same status code
-		return json(data, { status: response.status });
+		return json({...data, recordId: requestRecordId}, { status: response.status });
 	} catch (error) {
 		console.error('Suno API proxy error:', error);
 

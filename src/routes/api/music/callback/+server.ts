@@ -110,16 +110,17 @@ export const POST: RequestHandler = async ({ request }) => {
                     console.log('Text generation completed for task:', task_id);
                     break;
                 case 'first':
+                //     console.log('First music track completed for task:', task_id);
+                //     break;
+                // case 'complete':
                     console.log('First music track completed for task:', task_id);
-                    break;
-                case 'complete':
-                    console.log('All music tracks completed for task:', task_id);
 
                     // Extract and save music track information to PocketBase when callback type is "complete"
                     if (musicData && Array.isArray(musicData) && pb) {
                         console.log(`Extracting ${musicData.length} music track(s) for upload:`);
 
-                        const music = musicData[0] // we only want one track.
+                        // select the longest track
+                        const music = musicData.sort((a, b) => b.duration - a.duration)[0];
 
                         try {
                             // Map the music track data to PocketBase collection format

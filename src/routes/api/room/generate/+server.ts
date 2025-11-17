@@ -59,7 +59,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		// Call the Suno API
 		const body = {
 			customMode: false,
-			instrumental: false,
+			instrumental: room.instrumental || false,
 			model: 'V5',
 			prompt: room.prompt.trim(),
 			callBackUrl: `https://radio.sercan.co.uk/api/music/callback`

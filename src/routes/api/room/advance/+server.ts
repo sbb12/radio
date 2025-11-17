@@ -45,16 +45,17 @@ export const POST: RequestHandler = async ({ request }) => {
                 },
                 body: JSON.stringify({
                     customMode: false,
-                    instrumental: false,
+                    instrumental: room.instrumental || false,
                     model: 'V5',
                     prompt: room.prompt
                 }),
             });
             if (response.ok) {
-                const data = await response.json();
+                const data = await response.json();                
+                console.log({data});
                 updateData = {
                     ...updateData,
-                    active_request: data.data.taskId
+                    active_request: data.data.recordId
                 };
             } else {
                 return json(
@@ -65,7 +66,8 @@ export const POST: RequestHandler = async ({ request }) => {
         }
 
         if (Object.keys(updateData).length > 0) {
-            try {
+            console.log({updateData});
+            try {                
                 await pb.collection('radio_rooms').update(room.id, updateData);
             } catch (error) {
                 console.error('Error updating room:', error);

@@ -4,11 +4,18 @@
 	import { page } from '$app/stores';
 	import PocketBase from 'pocketbase';
 	import { onDestroy, onMount } from 'svelte';
+	import { browser } from '$app/environment';
+	import { env } from '$env/dynamic/public';
 
 	let { data } = $props();
 	let track = $state<any>(null);
+	let nextTrack = $state<any>(null);
+	let activeRequest = $state(false);
 	let user = $state(data.user);
 	let generationPrompt = $state('');
+	let instrumental = $state(false);
+	let roomId = $state<string | null>(null);
+	let promptUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	let audioElement: HTMLAudioElement | null = null;
 	let isPlaying = $state(false);
@@ -17,31 +24,82 @@
 	let volume = $state(1);
 	let isLoading = $state(false);
 	let pb = $state<PocketBase | null>(null);
+	let shouldAutoPlay = $state(false);
+	let isUserActive = $state(true);
+	let lastActivityTime = $state(Date.now());
+	let inactivityCheckInterval: ReturnType<typeof setInterval> | null = null;
+	let activityUpdateHandler: (() => void) | null = null;
+	let isUpdatingPrompt = $state(false);
+	let isUpdatingInstrumental = $state(false);
 
 	onMount(async () => {
-		pb = new PocketBase('https://pb.sercan.co.uk');
+		// Use PUBLIC_POCKETBASE_URL if available, otherwise fallback to hardcoded URL
+		const pbUrl = (browser && env.PUBLIC_POCKETBASE_URL) || 'https://pb.sercan.co.uk';
+		pb = new PocketBase(pbUrl);
+
+		// Track user activity
+		const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+		activityUpdateHandler = () => {
+			lastActivityTime = Date.now();
+			isUserActive = true;
+		};
+
+		activityEvents.forEach((event) => {
+			window.addEventListener(event, activityUpdateHandler!, { passive: true });
+		});
+
+		// Check for inactivity every 30 seconds
+		// User is considered inactive after 60 minutes of no activity
+		inactivityCheckInterval = setInterval(() => {
+			const timeSinceLastActivity = Date.now() - lastActivityTime;
+			if (timeSinceLastActivity > 60 * 60 * 1000) { // 60 minutes
+				isUserActive = false;
+			}
+		}, 30000); // Check every 30 seconds
 
 		const room = await pb.collection('radio_rooms').getOne('corxga7q86bsc0s', {
 			expand: 'current_track,next_track,active_request'
 		});
 
+		roomId = room.id;
+		
 		if (room.expand?.current_track) {
 			track = room.expand.current_track;
 		}
+		if (room.expand?.next_track) {
+			nextTrack = room.expand.next_track;
+		}
+		activeRequest = room.active_request || false;
+		generationPrompt = room.prompt || '';
+		instrumental = room.instrumental || false;
 
 		// Subscribe to changes only in the specified record
 		pb.collection('radio_rooms').subscribe(
 			'corxga7q86bsc0s',
 			function (e) {
 				const currentTrack = e.record.expand?.current_track;
-				if (currentTrack && currentTrack.track_id !== track?.track_id) {
-					track = currentTrack;
+				const newNextTrack = e.record.expand?.next_track;
+				const newActiveRequest = e.record.active_request || false;
+				const newPrompt = e.record.prompt || '';
+				const newInstrumental = e.record.instrumental || false;
 
-					if (audioElement) {
-						audioElement.play().catch((err) => {
-							console.error('Play error:', err);
-						});
-					}
+				// Update next track and active request status
+				nextTrack = newNextTrack || null;
+				activeRequest = newActiveRequest;
+				
+				// Update prompt and instrumental from room (only if changed externally and we're not currently updating)
+				if (!isUpdatingPrompt && newPrompt !== generationPrompt) {
+					generationPrompt = newPrompt;
+				}
+				if (!isUpdatingInstrumental && newInstrumental !== instrumental) {
+					instrumental = newInstrumental;
+				}
+
+				// Handle current track change
+				if (currentTrack && currentTrack.track_id !== track?.track_id) {
+					// Set flag to auto-play when new track is loaded
+					shouldAutoPlay = true;
+					track = currentTrack;
 				}
 			},
 			{
@@ -49,7 +107,21 @@
 			}
 		);
 	});
+
 	onDestroy(async () => {
+		if (promptUpdateTimeout) {
+			clearTimeout(promptUpdateTimeout);
+		}
+		// Clean up activity listeners and intervals
+		if (activityUpdateHandler) {
+			const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+			activityEvents.forEach((event) => {
+				window.removeEventListener(event, activityUpdateHandler!);
+			});
+		}
+		if (inactivityCheckInterval) {
+			clearInterval(inactivityCheckInterval);
+		}
 		pb?.collection('radio_rooms').unsubscribe('corxga7q86bsc0s');
 	});
 
@@ -71,10 +143,10 @@
 	// Initialize audio element
 	$effect(() => {
 		// Clean up previous audio element if track changes or becomes null
-		// if (audioElement) {
-		// 	audioElement.pause();
-		// 	audioElement = null;
-		// }
+		if (audioElement) {
+			audioElement.pause();
+			audioElement = null;
+		}
 
 		if (track?.audio_url && typeof document !== 'undefined') {
 			audioElement = new Audio(track.audio_url);
@@ -109,6 +181,13 @@
 
 			audioElement.addEventListener('canplay', () => {
 				isLoading = false;
+				// Auto-play when audio is ready if flag is set
+				if (shouldAutoPlay && audioElement) {
+					audioElement.play().catch((err) => {
+						console.error('Auto-play error:', err);
+					});
+					shouldAutoPlay = false;
+				}
 			});
 
 			return () => {
@@ -166,7 +245,12 @@
 
 	function handleTrackEnded() {
 		console.log('Track ended');
-		handleAdvanceTrack();
+		// Only auto-advance if user is active
+		if (isUserActive) {
+			handleAdvanceTrack();
+		} else {
+			console.log('User inactive, skipping auto-advance');
+		}
 		// Add your end handling logic here
 	}
 
@@ -177,6 +261,56 @@
 
 	async function handleAdvanceTrack() {
 		await fetch('/api/room/advance', { method: 'POST' });
+	}
+
+	// Update room prompt with debouncing
+	async function updateRoomPrompt() {
+		if (!pb || !roomId) return;
+		
+		// Clear existing timeout
+		if (promptUpdateTimeout) {
+			clearTimeout(promptUpdateTimeout);
+		}
+		
+		// Debounce the update
+		const currentPb = pb;
+		const currentRoomId = roomId;
+		const currentPrompt = generationPrompt;
+		promptUpdateTimeout = setTimeout(async () => {
+			if (!currentPb || !currentRoomId) return;
+			try {
+				isUpdatingPrompt = true;
+				await currentPb.collection('radio_rooms').update(currentRoomId, {
+					prompt: currentPrompt
+				});
+				// Reset flag after a short delay to allow subscription to process
+				setTimeout(() => {
+					isUpdatingPrompt = false;
+				}, 100);
+			} catch (err) {
+				console.error('Error updating room prompt:', err);
+				isUpdatingPrompt = false;
+			}
+		}, 500); // Wait 500ms after user stops typing
+	}
+
+	// Update room instrumental setting
+	async function updateRoomInstrumental() {
+		if (!pb || !roomId) return;
+		
+		try {
+			isUpdatingInstrumental = true;
+			await pb.collection('radio_rooms').update(roomId, {
+				instrumental: instrumental
+			});
+			// Reset flag after a short delay to allow subscription to process
+			setTimeout(() => {
+				isUpdatingInstrumental = false;
+			}, 100);
+		} catch (err) {
+			console.error('Error updating room instrumental:', err);
+			isUpdatingInstrumental = false;
+		}
 	}
 
 	async function handleLogout() {
@@ -247,6 +381,70 @@
 						{/if}
 						{#if track.create_time}
 							<p class="mt-4 text-xs text-gray-400">Created: {track.create_time}</p>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Next Track Status -->
+				<div class="mb-6 rounded-lg border border-white/10 bg-white/5 p-4">
+					<div class="flex items-center justify-between">
+						<div class="flex-1">
+							<h3 class="mb-2 text-sm font-semibold tracking-wide text-gray-400 uppercase">
+								Next Track Status
+							</h3>
+							{#if nextTrack}
+								<div class="flex items-center gap-3">
+									<div class="flex h-3 w-3 items-center justify-center">
+										<div class="h-2 w-2 rounded-full bg-green-500"></div>
+									</div>
+									<div class="flex-1">
+										<p class="font-semibold text-white">{nextTrack.title}</p>
+										<p class="text-sm text-gray-400">Ready to play</p>
+									</div>
+								</div>
+							{:else if activeRequest}
+								<div class="flex items-center gap-3">
+									<div class="flex h-3 w-3 items-center justify-center">
+										<svg class="h-3 w-3 animate-spin text-yellow-500" fill="none" viewBox="0 0 24 24">
+											<circle
+												class="opacity-25"
+												cx="12"
+												cy="12"
+												r="10"
+												stroke="currentColor"
+												stroke-width="4"
+											></circle>
+											<path
+												class="opacity-75"
+												fill="currentColor"
+												d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+											></path>
+										</svg>
+									</div>
+									<div class="flex-1">
+										<p class="font-semibold text-white">Generating next track...</p>
+										<p class="text-sm text-gray-400">Please wait</p>
+									</div>
+								</div>
+							{:else}
+								<div class="flex items-center gap-3">
+									<div class="flex h-3 w-3 items-center justify-center">
+										<div class="h-2 w-2 rounded-full bg-gray-500"></div>
+									</div>
+									<div class="flex-1">
+										<p class="font-semibold text-white">No next track</p>
+										<p class="text-sm text-gray-400">Waiting for generation</p>
+									</div>
+								</div>
+							{/if}
+						</div>
+						{#if nextTrack}
+							<button
+								onclick={handleAdvanceTrack}
+								class="rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:from-purple-700 hover:to-pink-700 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+							>
+								Advance
+							</button>
 						{/if}
 					</div>
 				</div>
@@ -335,21 +533,36 @@
 			<!-- Generation Prompt Box -->
 			<div class="mt-8 rounded-lg border border-white/20 bg-white/5 p-6">
 				<h2 class="mb-4 text-2xl font-bold text-white">Generation Prompt</h2>
-				<div>
-					<label for="prompt" class="mb-2 block text-sm font-medium text-gray-300">
-						Enter a prompt for the next song
-					</label>
-					<textarea
-						id="prompt"
-						bind:value={generationPrompt}
-						placeholder="e.g., A upbeat electronic dance track with catchy melodies..."
-						rows="3"
-						maxlength="500"
-						class="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500 focus:outline-none"
-					></textarea>
-					<p class="mt-1 text-xs text-gray-400">
-						{generationPrompt.length}/500 characters
-					</p>
+				<div class="space-y-4">
+					<div>
+						<label for="prompt" class="mb-2 block text-sm font-medium text-gray-300">
+							Enter a prompt for the next song
+						</label>
+						<textarea
+							id="prompt"
+							bind:value={generationPrompt}
+							oninput={updateRoomPrompt}
+							placeholder="e.g., A upbeat electronic dance track with catchy melodies..."
+							rows="3"
+							maxlength="500"
+							class="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+						></textarea>
+						<p class="mt-1 text-xs text-gray-400">
+							{generationPrompt.length}/500 characters
+						</p>
+					</div>
+					
+					<div class="flex items-center gap-3">
+						<label class="flex cursor-pointer items-center gap-2">
+							<input
+								type="checkbox"
+								bind:checked={instrumental}
+								onchange={updateRoomInstrumental}
+								class="h-5 w-5 cursor-pointer rounded border-white/20 bg-white/10 text-purple-600 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0"
+							/>
+							<span class="text-sm font-medium text-gray-300">Instrumental</span>
+						</label>
+					</div>
 				</div>
 			</div>
 		</div>
