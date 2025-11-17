@@ -5,7 +5,7 @@ import { base } from '$app/paths';
 import { BASE_URL } from '$env/static/private';
 
 export const POST: RequestHandler = async ({ request }) => {
-    try {        
+    try {
         const pb = await getPocketBase();
 
         // Get the latest room
@@ -47,17 +47,30 @@ export const POST: RequestHandler = async ({ request }) => {
                     customMode: false,
                     instrumental: false,
                     model: 'V5',
-                    prompt: room.prompt                    
-                }),                
+                    prompt: room.prompt
+                }),
             });
             if (response.ok) {
+                const data = await response.json();
                 updateData = {
                     ...updateData,
-                    active_request: true
+                    active_request: data.data.taskId
                 };
+            } else {
+                return json(
+                    { error: 'Failed to generate song' },
+                    { status: response.status }
+                );
             }
-            const data = await response.json();
-            console.log(data)
+        }
+
+        if (Object.keys(updateData).length > 0) {
+            try {
+                await pb.collection('radio_rooms').update(room.id, updateData);
+            } catch (error) {
+                console.error('Error updating room:', error);
+                return json({ error: 'Failed to update room' }, { status: 500 });
+            }
         }
 
         return json({ success: true });

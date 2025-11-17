@@ -235,7 +235,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
                     if (latestRoom.items.length > 0) {
                         await pb.collection('radio_rooms').update(latestRoom.items[0].id, {
-                            active_request: false
+                            active_request: null
                         });
                         console.log('Cleared active_request due to generation error');
                     }

@@ -27,21 +27,21 @@
 
 		if (room.expand?.current_track) {
 			track = room.expand.current_track;
-
-			if (!room.expand?.next_track) {
-				handleAdvanceTrack();
-			}
 		}
 
 		// Subscribe to changes only in the specified record
-		pb.collection('radio_rooms').subscribe('corxga7q86bsc0s',
+		pb.collection('radio_rooms').subscribe(
+			'corxga7q86bsc0s',
 			function (e) {
-				console.log(e.action);
-				console.log(e.record);
-
 				const currentTrack = e.record.expand?.current_track;
 				if (currentTrack && currentTrack.track_id !== track?.track_id) {
 					track = currentTrack;
+
+					if (audioElement) {
+						audioElement.play().catch((err) => {
+							console.error('Play error:', err);
+						});
+					}
 				}
 			},
 			{
@@ -71,10 +71,10 @@
 	// Initialize audio element
 	$effect(() => {
 		// Clean up previous audio element if track changes or becomes null
-		if (audioElement) {
-			audioElement.pause();
-			audioElement = null;
-		}
+		// if (audioElement) {
+		// 	audioElement.pause();
+		// 	audioElement = null;
+		// }
 
 		if (track?.audio_url && typeof document !== 'undefined') {
 			audioElement = new Audio(track.audio_url);
@@ -166,6 +166,7 @@
 
 	function handleTrackEnded() {
 		console.log('Track ended');
+		handleAdvanceTrack();
 		// Add your end handling logic here
 	}
 
