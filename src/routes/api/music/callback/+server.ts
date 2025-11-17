@@ -30,6 +30,12 @@ interface CallbackRequest {
     data: CallbackData;
 }
 
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
+
 export const POST: RequestHandler = async ({ request }) => {
     try {
         // Parse the callback request
@@ -184,7 +190,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
         // Return 200 status code immediately to confirm callback received
         // This is important to avoid timeout (must respond within 15 seconds)
-        return json({ status: 'received', taskId: task_id }, { status: 200 });
+        return json({ status: 'received', taskId: task_id }, { status: 200, headers: corsHeaders });
     } catch (error) {
         console.error('Error processing callback:', error);
 
@@ -201,13 +207,6 @@ export const POST: RequestHandler = async ({ request }) => {
 };
 
 export const OPTIONS: RequestHandler = async () => {
-
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-    };
-
     // Preflight response
     return new Response(null, {
         status: 204,
