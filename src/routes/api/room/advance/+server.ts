@@ -1,0 +1,72 @@
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { getPocketBase } from '$lib/pocketbase';
+import { base } from '$app/paths';
+import { BASE_URL } from '$env/static/private';
+
+export const POST: RequestHandler = async ({ request }) => {
+    try {        
+        const pb = await getPocketBase();
+
+        // Get the latest room
+        const latestRoom = await pb
+            .collection('radio_rooms')
+            .getList(1, 1, {
+                sort: '-created'
+            });
+
+        if (latestRoom.items.length === 0) {
+            return json(
+                { error: 'No room available' },
+                { status: 404 }
+            );
+        }
+
+        const room = latestRoom.items[0];
+        let updateData = {}
+
+        if (room.next_track) {
+            const nextTrack = await pb.collection('radio_music_tracks').getOne(room.next_track);
+            if (nextTrack) {
+                updateData = {
+                    ...updateData,
+                    current_track: nextTrack.id,
+                    next_track: null,
+                    current_start: new Date().toISOString()
+                };
+            }
+        }
+        // no next track at this point, generate if one isnt already on the way
+        if (!room.active_request) {
+            const response = await fetch(BASE_URL + '/api/music/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    customMode: false,
+                    instrumental: false,
+                    model: 'V5',
+                    prompt: room.prompt                    
+                }),                
+            });
+            if (response.ok) {
+                updateData = {
+                    ...updateData,
+                    active_request: true
+                };
+            }
+            const data = await response.json();
+            console.log(data)
+        }
+
+        return json({ success: true });
+    } catch (error) {
+        console.error('Error advancing room:', error);
+        return json(
+            { error: 'Failed to advance room' },
+            { status: 500 }
+        );
+    }
+};
+

@@ -1,10 +1,11 @@
-import { json } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-export const POST: RequestHandler = async ({ cookies }) => {
+export const GET: RequestHandler = async ({ cookies }) => {
 	// Clear auth cookie
 	cookies.delete('stoken', { path: '/' });
 
-	return json({ success: true });
+	// Redirect to login page
+	throw redirect(302, '/login');
 };
 

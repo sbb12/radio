@@ -37,7 +37,7 @@ const corsHeaders = {
 };
 
 export const GET: RequestHandler = async ({ request }) => {
-    return  json('hello')
+    return json('hello')
 }
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -114,66 +114,93 @@ export const POST: RequestHandler = async ({ request }) => {
                     break;
                 case 'complete':
                     console.log('All music tracks completed for task:', task_id);
-                    
+
                     // Extract and save music track information to PocketBase when callback type is "complete"
                     if (musicData && Array.isArray(musicData) && pb) {
                         console.log(`Extracting ${musicData.length} music track(s) for upload:`);
 
-                        // Save each music track to database
-                        for (const music of musicData) {
-                            try {
-                                // Map the music track data to PocketBase collection format
-                                const trackData = {
-                                    track_id: music.id,
-                                    task_id: task_id,
-                                    title: music.title,
-                                    prompt: music.prompt,
-                                    model_name: music.model_name,
-                                    tags: music.tags,
-                                    duration: music.duration,
-                                    audio_url: music.audio_url,
-                                    source_audio_url: music.source_audio_url,
-                                    stream_audio_url: music.stream_audio_url,
-                                    source_stream_audio_url: music.source_stream_audio_url,
-                                    image_url: music.image_url,
-                                    source_image_url: music.source_image_url,
-                                    create_time: music.createTime,
-                                    callback_type: callbackType
-                                };
+                        const music = musicData[0] // we only want one track.
 
-                                // Check if track already exists by track_id
-                                const existingTracks = await pb
-                                    .collection('radio_music_tracks')
-                                    .getList(1, 1, {
-                                        filter: `track_id = "${music.id}"`
-                                    })
-                                    .catch(() => ({ items: [] }));
+                        try {
+                            // Map the music track data to PocketBase collection format
+                            const trackData = {
+                                track_id: music.id,
+                                task_id: task_id,
+                                title: music.title,
+                                prompt: music.prompt,
+                                model_name: music.model_name,
+                                tags: music.tags,
+                                duration: music.duration,
+                                audio_url: music.audio_url,
+                                source_audio_url: music.source_audio_url,
+                                stream_audio_url: music.stream_audio_url,
+                                source_stream_audio_url: music.source_stream_audio_url,
+                                image_url: music.image_url,
+                                source_image_url: music.source_image_url,
+                                create_time: music.createTime,
+                                callback_type: callbackType
+                            };
 
-                                if (existingTracks.items.length > 0) {
-                                    // Update existing track
-                                    const existingTrack = existingTracks.items[0];
-                                    await pb.collection('radio_music_tracks').update(existingTrack.id, trackData);
-                                    console.log(`Updated music track in PocketBase: ${music.id}`);
-                                } else {
-                                    // Create new track
-                                    const record = await pb.collection('radio_music_tracks').create(trackData);
-                                    console.log(`Created music track in PocketBase: ${music.id}`);
-                                }
+                            // Check if track already exists by track_id
+                            let existingTracks = await pb
+                                .collection('radio_music_tracks')
+                                .getList(1, 1, {
+                                    filter: `track_id = "${music.id}"`
+                                })
+                                .catch(() => ({ items: [] }));
 
-                                // Log track details
-                                console.log(`Track: ${music.title}`);
-                                console.log(`  ID: ${music.id}`);
-                                console.log(`  Duration: ${music.duration} seconds`);
-                                console.log(`  Tags: ${music.tags}`);
-                                console.log(`  Model: ${music.model_name}`);
-                                console.log(`  Audio URL: ${music.audio_url}`);
-                                console.log(`  Cover URL: ${music.image_url}`);
-                                console.log(`  Created: ${music.createTime}`);
-                            } catch (trackError) {
-                                console.error(`Error saving track ${music.id} to PocketBase:`, trackError);
-                                // Continue with next track even if one fails
+                            if (existingTracks.items.length > 0) {
+                                // Update existing track
+                                const existingTrack = existingTracks.items[0];
+                                await pb.collection('radio_music_tracks').update(existingTrack.id, trackData);
+                                console.log(`Updated music track in PocketBase: ${music.id}`);
+                            } else {
+                                // Create new track
+                                const record = await pb.collection('radio_music_tracks').create(trackData);
+                                console.log(`Created music track in PocketBase: ${music.id}`);
                             }
+
+                            // Update room: set this track as next_track and clear active_request
+                            try {
+                                const latestRoom = await pb
+                                    .collection('radio_rooms')
+                                    .getList(1, 1, {
+                                        sort: '-created'
+                                    });
+
+                                if (latestRoom.items.length > 0) {
+                                    const room = latestRoom.items[0];
+
+                                    // Find the track we just created/updated
+                                    const savedTracks = await pb
+                                        .collection('radio_music_tracks')
+                                        .getList(1, 1, {
+                                            filter: `track_id = "${music.id}"`
+                                        });
+
+                                    if (savedTracks.items.length > 0) {
+                                        const savedTrack = savedTracks.items[0];
+
+                                        // Update room: set next_track and clear active_request
+                                        await pb.collection('radio_rooms').update(room.id, {
+                                            next_track: savedTrack.id,
+                                            active_request: false
+                                        });
+
+                                        console.log(`Updated room: set next_track to ${savedTrack.id}`);
+                                    } else {
+                                        console.error('No saved track found');
+                                    }
+                                }
+                            } catch (roomError) {
+                                console.error('Error updating room with new track:', roomError);
+                                // Continue even if room update fails
+                            }
+                        } catch (trackError) {
+                            console.error(`Error saving track ${music.id} to PocketBase:`, trackError);
+                            // Continue with next track even if one fails
                         }
+
                     } else if (musicData && Array.isArray(musicData)) {
                         // Log tracks even if PocketBase is not available
                         console.log(`Would save ${musicData.length} track(s) if PocketBase was available:`);
@@ -181,9 +208,6 @@ export const POST: RequestHandler = async ({ request }) => {
                             console.log(`Track ${index + 1}:`);
                             console.log(`  ID: ${music.id}`);
                             console.log(`  Title: ${music.title}`);
-                            console.log(`  Duration: ${music.duration} seconds`);
-                            console.log(`  Tags: ${music.tags}`);
-                            console.log(`  Model: ${music.model_name}`);
                             console.log(`  Audio URL: ${music.audio_url}`);
                             console.log(`  Cover URL: ${music.image_url}`);
                             console.log(`  Created: ${music.createTime}`);
@@ -199,6 +223,26 @@ export const POST: RequestHandler = async ({ request }) => {
                 message: msg,
                 callbackType
             });
+
+            // Clear active_request in room on error
+            if (pb) {
+                try {
+                    const latestRoom = await pb
+                        .collection('radio_rooms')
+                        .getList(1, 1, {
+                            sort: '-created'
+                        });
+
+                    if (latestRoom.items.length > 0) {
+                        await pb.collection('radio_rooms').update(latestRoom.items[0].id, {
+                            active_request: false
+                        });
+                        console.log('Cleared active_request due to generation error');
+                    }
+                } catch (roomError) {
+                    console.error('Error clearing active_request:', roomError);
+                }
+            }
 
             // Handle different error codes
             switch (code) {

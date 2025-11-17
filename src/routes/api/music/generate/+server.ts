@@ -139,7 +139,7 @@ function validateRequest(body: any): { valid: boolean; error?: string } {
 	return { valid: true };
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request }) => {	
 	try {
 		// Check if API key is configured
 		if (!API_KEY) {
@@ -169,7 +169,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		// Automatically set callback URL from environment variable
-		body.callBackUrl = `${BASE_URL}/api/music/callback`;
+		body.callBackUrl = `https://radio.sercan.co.uk/api/music/callback`;
 
 		// Validate the request body
 		const validation = validateRequest(body);
