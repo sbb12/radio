@@ -18,7 +18,7 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 			headers: corsHeaders
 		});
 	}
-	if (1) resolve(event);
+	if (1) return resolve(event);
 
 	// Skip auth check for login page and API routes
 	const isLoginPage = event.url.pathname === '/login';
