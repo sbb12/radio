@@ -101,7 +101,6 @@
 
 				// Handle current track change
 				if (currentTrack && currentTrack.track_id !== track?.track_id) {
-					// Set flag to auto-play when new track is loaded
 					shouldAutoPlay = true;
 					track = currentTrack;
 				}
@@ -154,6 +153,7 @@
 
 		if (track?.audio_url && typeof document !== 'undefined') {
 			audioElement = new Audio(track.audio_url);
+			audioElement.volume = volume;
 
 			audioElement.addEventListener('loadedmetadata', () => {
 				duration = audioElement?.duration || 0;
@@ -171,11 +171,13 @@
 
 			audioElement.addEventListener('play', () => {
 				isPlaying = true;
+				shouldAutoPlay = true;
 				handleTrackPlay();
 			});
 
 			audioElement.addEventListener('pause', () => {
 				isPlaying = false;
+				shouldAutoPlay = false;
 				handleTrackPause();
 			});
 
