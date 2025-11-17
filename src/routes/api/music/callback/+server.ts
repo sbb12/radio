@@ -109,11 +109,7 @@ export const POST: RequestHandler = async ({ request }) => {
                 case 'text':
                     console.log('Text generation completed for task:', task_id);
                     break;
-                case 'first':
-                //     console.log('First music track completed for task:', task_id);
-                //     break;
-                // case 'complete':
-                    console.log('First music track completed for task:', task_id);
+                case 'complete':
 
                     // Extract and save music track information to PocketBase when callback type is "complete"
                     if (musicData && Array.isArray(musicData) && pb) {
