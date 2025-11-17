@@ -5,6 +5,19 @@ import { sequence } from '@sveltejs/kit/hooks';
 
 const handleAuth: Handle = async ({ event, resolve }) => {
 	if (1) resolve(event);
+	if (event.request.method == 'OPTIONS'){
+		const corsHeaders = {
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+			'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+		};
+	
+		// Preflight response
+		return new Response(null, {
+			status: 204,
+			headers: corsHeaders
+		});
+	}
 
 	// Skip auth check for login page and API routes
 	const isLoginPage = event.url.pathname === '/login';
