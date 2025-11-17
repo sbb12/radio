@@ -3,46 +3,42 @@ import PocketBase from 'pocketbase';
 import { POCKETBASE_URL } from '$env/static/private';
 import { sequence } from '@sveltejs/kit/hooks';
 
-const handleAuth: Handle = async ({ event, resolve }) => {
-	console.log(1)
-	if (event.request.method == 'OPTIONS') {
-		const corsHeaders = {
-			'Access-Control-Allow-Origin': '*',
-			'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-			'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-		};
+const corsHeaders = {
+	'Access-Control-Allow-Origin': '*',
+	'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+	'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
 
-		// Preflight response
+const handleAuth: Handle = async ({ event, resolve }) => {
+	// Handle CORS preflight requests
+	if (event.request.method === 'OPTIONS') {
 		return new Response(null, {
 			status: 204,
 			headers: corsHeaders
 		});
 	}
-	const response = await resolve(event)
-	response.headers.append('Access-Control-Allow-Origin', `*`);
-	if (1) return response
 
 	// Skip auth check for login page and API routes
 	const isLoginPage = event.url.pathname === '/login';
 	const isApiRoute = event.url.pathname.startsWith('/api');
-	const isAuthApiRoute = event.url.pathname.startsWith('/api/auth');
 
-	// Allow access to login page and auth API routes
-	if (isLoginPage || isAuthApiRoute) {
-		return resolve(event);
+	// Allow access to login page and API routes without auth
+	if (isLoginPage || isApiRoute) {
+		const response = await resolve(event);
+		// Add CORS headers to API responses
+		if (isApiRoute) {
+			Object.entries(corsHeaders).forEach(([key, value]) => {
+				response.headers.set(key, value);
+			});
+		}
+		return response;
 	}
 
-	// Validate token with PocketBase
+	// Validate token with PocketBase for protected routes
 	try {
 		if (!POCKETBASE_URL) {
 			console.error('POCKETBASE_URL not configured');
-			if (!isApiRoute) {
-				throw redirect(302, '/login');
-			}
-			return new Response(JSON.stringify({ error: 'Server configuration error' }), {
-				status: 500,
-				headers: { 'Content-Type': 'application/json' }
-			});
+			throw redirect(302, '/login');
 		}
 
 		const pb = new PocketBase(POCKETBASE_URL);
@@ -50,19 +46,13 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 
 		// Load auth from cookie string using custom cookie name
 		if (token) {
-			pb.authStore.save(token)
+			pb.authStore.save(token);
 			try {
 				await pb.collection('users').authRefresh();
 			} catch (error) {
 				console.error('Auth refresh error:', error);
 				event.cookies.delete('stoken', { path: '/' });
-				if (!isApiRoute) {
-					throw redirect(302, '/login');
-				}
-				return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-					status: 401,
-					headers: { 'Content-Type': 'application/json' }
-				});
+				throw redirect(302, '/login');
 			}
 		}
 
@@ -70,28 +60,20 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 		if (!pb.authStore.isValid || !pb.authStore.model) {
 			// Invalid token, clear cookie and redirect
 			event.cookies.delete('stoken', { path: '/' });
-			if (!isApiRoute) {
-				throw redirect(302, '/login');
-			}
-			return new Response(JSON.stringify({ error: 'Invalid or expired token' }), {
-				status: 401,
-				headers: { 'Content-Type': 'application/json' }
-			});
+			throw redirect(302, '/login');
 		}
 
 		// Token is valid, attach user to event locals
 		event.locals.pb = pb;
 		event.locals.user = pb.authStore.model;
 	} catch (error) {
+		// If it's a redirect, re-throw it
+		if (error instanceof Response && error.status >= 300 && error.status < 400) {
+			throw error;
+		}
 		console.error('Auth validation error:', error);
 		event.cookies.delete('stoken', { path: '/' });
-		if (!isApiRoute) {
-			throw redirect(302, '/login');
-		}
-		return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-			status: 401,
-			headers: { 'Content-Type': 'application/json' }
-		});
+		throw redirect(302, '/login');
 	}
 
 	return resolve(event);
