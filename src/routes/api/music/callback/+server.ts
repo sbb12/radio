@@ -36,6 +36,10 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization'
 };
 
+export const GET: RequestHandler = async ({ request }) => {
+    return  json('hello')
+}
+
 export const POST: RequestHandler = async ({ request }) => {
     try {
         // Parse the callback request
