@@ -4,7 +4,7 @@ import { POCKETBASE_URL } from '$env/static/private';
 import { sequence } from '@sveltejs/kit/hooks';
 
 const handleAuth: Handle = async ({ event, resolve }) => {
-
+	console.log(1)
 	if (event.request.method == 'OPTIONS') {
 		const corsHeaders = {
 			'Access-Control-Allow-Origin': '*',
