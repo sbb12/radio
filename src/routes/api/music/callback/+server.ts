@@ -184,7 +184,7 @@ export const POST: RequestHandler = async ({ request }) => {
                                         // Update room: set next_track and clear active_request
                                         await pb.collection('radio_rooms').update(room.id, {
                                             next_track: savedTrack.id,
-                                            active_request: false
+                                            active_request: null
                                         });
 
                                         console.log(`Updated room: set next_track to ${savedTrack.id}`);

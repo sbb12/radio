@@ -226,7 +226,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		let data: any;
 
 		if (contentType?.includes('application/json')) {
-			data = await response.json();
+			data = await response.json();	
 		} else {
 			const text = await response.text();
 			// If response is not JSON, return it as text
@@ -243,11 +243,11 @@ export const POST: RequestHandler = async ({ request }) => {
 			try {
 				await pb.collection('radio_generate_requests').update(requestRecordId, {
 					status: response.ok ? 'submitted' : 'failed',
-					response_code: response.status,
-					response_data: JSON.stringify(data),
-					updated_at: new Date().toISOString()
+					taskId: data.data?.taskId 
 				});
 				console.log('Updated generation request in PocketBase:', requestRecordId);
+
+				await pb.collection('radio_rooms').update('corxga7q86bsc0s', { active_request: requestRecordId });
 			} catch (updateError) {
 				console.error('Error updating request in PocketBase:', updateError);
 				// Continue even if update fails
