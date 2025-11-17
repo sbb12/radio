@@ -4,6 +4,8 @@ import { POCKETBASE_URL } from '$env/static/private';
 import { sequence } from '@sveltejs/kit/hooks';
 
 const handleAuth: Handle = async ({ event, resolve }) => {
+	if (1) resolve(event);
+
 	// Skip auth check for login page and API routes
 	const isLoginPage = event.url.pathname === '/login';
 	const isApiRoute = event.url.pathname.startsWith('/api');
