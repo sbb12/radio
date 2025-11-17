@@ -95,7 +95,7 @@
 				return;
 			}
 			
-			await goto('/live');
+			await goto('/');
 
 		} catch (err: any) {
 			console.error('Google login error:', err);

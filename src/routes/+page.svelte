@@ -31,6 +31,7 @@
 	let activityUpdateHandler: (() => void) | null = null;
 	let isUpdatingPrompt = $state(false);
 	let isUpdatingInstrumental = $state(false);
+	let currentStart = $state<string | null>(null);
 
 	onMount(async () => {
 		// Use PUBLIC_POCKETBASE_URL if available, otherwise fallback to hardcoded URL
@@ -72,6 +73,7 @@
 		activeRequest = room.active_request || false;
 		generationPrompt = room.prompt || '';
 		instrumental = room.instrumental || false;
+		currentStart = room.current_start || null;
 
 		// Subscribe to changes only in the specified record
 		pb.collection('radio_rooms').subscribe(
@@ -82,10 +84,12 @@
 				const newActiveRequest = e.record.active_request || false;
 				const newPrompt = e.record.prompt || '';
 				const newInstrumental = e.record.instrumental || false;
+				const newCurrentStart = e.record.current_start || null;
 
 				// Update next track and active request status
 				nextTrack = newNextTrack || null;
 				activeRequest = newActiveRequest;
+				currentStart = newCurrentStart;
 				
 				// Update prompt and instrumental from room (only if changed externally and we're not currently updating)
 				if (!isUpdatingPrompt && newPrompt !== generationPrompt) {
@@ -97,7 +101,7 @@
 
 				// Handle current track change
 				if (currentTrack && currentTrack.track_id !== track?.track_id) {
-					// Set flag to auto-play when new track is loaded					
+					// Set flag to auto-play when new track is loaded
 					shouldAutoPlay = true;
 					track = currentTrack;
 				}
@@ -183,6 +187,18 @@
 				isLoading = false;
 				// Auto-play when audio is ready if flag is set
 				if (shouldAutoPlay && audioElement) {
+					// Calculate elapsed time since current_start and skip to that position
+					if (currentStart && duration > 0) {
+						const startTime = new Date(currentStart).getTime();
+						const now = Date.now();
+						const elapsedSeconds = (now - startTime) / 1000;
+						
+						// Only skip if elapsed time is positive and less than duration
+						if (elapsedSeconds > 0 && elapsedSeconds < duration) {
+							audioElement.currentTime = elapsedSeconds;
+							currentTime = elapsedSeconds;
+						}
+					}
 					audioElement.play().catch((err) => {
 						console.error('Auto-play error:', err);
 					});
@@ -209,6 +225,18 @@
 		if (isPlaying) {
 			audioElement.pause();
 		} else {
+			// Calculate elapsed time since current_start and skip to that position when play is pressed
+			if (currentStart && duration > 0) {
+				const startTime = new Date(currentStart).getTime();
+				const now = Date.now();
+				const elapsedSeconds = (now - startTime) / 1000;
+				
+				// Only skip if elapsed time is positive and less than duration
+				if (elapsedSeconds > 0 && elapsedSeconds < duration) {
+					audioElement.currentTime = elapsedSeconds;
+					currentTime = elapsedSeconds;
+				}
+			}
 			audioElement.play().catch((err) => {
 				console.error('Play error:', err);
 			});
