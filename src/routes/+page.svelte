@@ -128,6 +128,14 @@
 					// Update audio source when track changes
 					updateAudioSource();
 				}
+
+				// handle current track switch to audio url from stream url
+				if (currentTrack && currentTrack.stream_audio_url && currentTrack.audio_url !== track?.audio_url) {
+					shouldAutoPlay = true;
+					track = currentTrack;
+					// Update audio source when track changes
+					updateAudioSource();
+				}
 			},
 			{
 				expand: 'current_track,next_track,active_request'
@@ -232,7 +240,7 @@
 		
 		if (!audioElement) return;
 
-		if (track?.audio_url) {
+		if (track?.audio_url || track?.stream_audio_url) {
 			// Reset audio state
 			isPlaying = false;
 			currentTime = 0;
@@ -241,7 +249,7 @@
 			
 			// Update the source
 			audioElement.pause();
-			audioElement.src = track.audio_url; 
+			audioElement.src = track.audio_url || track.stream_audio_url; 
 			audioElement.load();
 		} else {
 			audioElement.pause();

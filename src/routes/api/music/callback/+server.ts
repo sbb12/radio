@@ -107,11 +107,9 @@ export const POST: RequestHandler = async ({ request }) => {
             // Handle different callback stages
             switch (callbackType) {
                 case 'text':
-                    console.log('Text generation completed for task:', task_id);
-                    break;
+                    console.log('Text generation completed for task:', task_id);                   
                 case 'first':
                     console.log('First music track completed for task:', task_id);
-                    break;
                 case 'complete':
 
                     // Extract and save music track information to PocketBase when callback type is "complete"
