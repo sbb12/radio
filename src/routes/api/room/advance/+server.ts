@@ -41,9 +41,10 @@ export const POST: RequestHandler = async ({ request }) => {
             // If generation is disabled, just randomly select a song
             if (room.disable_generate) {
                 try {
-                    // Get all tracks (fetch in batches if needed)
+                    // Get all tracks with "lofi" in tags
                     const allTracks = await pb.collection('radio_music_tracks').getFullList({
-                        sort: '-created'
+                        sort: '-created',
+                        filter: 'tags ~ "lofi"'
                     });
                     
                     if (allTracks.length > 0) {
@@ -58,7 +59,7 @@ export const POST: RequestHandler = async ({ request }) => {
                         console.log('Generation disabled, randomly selected track:', randomTrack.id);
                     } else {
                         return json(
-                            { error: 'No tracks available' },
+                            { error: 'No lofi tracks available' },
                             { status: 500 }
                         );
                     }
@@ -91,11 +92,12 @@ export const POST: RequestHandler = async ({ request }) => {
                         active_request: data.data.recordId
                     };
                 } else {
-                    // If generation fails, randomly select a song from all available songs
+                    // If generation fails, randomly select a song from lofi tracks
                     try {
-                        // Get all tracks (fetch in batches if needed)
+                        // Get all tracks with "lofi" in tags
                         const allTracks = await pb.collection('radio_music_tracks').getFullList({
-                            sort: '-created'
+                            sort: '-created',
+                            filter: 'tags ~ "lofi"'
                         });
                         
                         if (allTracks.length > 0) {
@@ -110,7 +112,7 @@ export const POST: RequestHandler = async ({ request }) => {
                             console.log('Generation failed, randomly selected track:', randomTrack.id);
                         } else {
                             return json(
-                                { error: 'Failed to generate song and no tracks available' },
+                                { error: 'Failed to generate song and no lofi tracks available' },
                                 { status: 500 }
                             );
                         }
