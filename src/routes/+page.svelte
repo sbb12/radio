@@ -717,8 +717,7 @@
 								<div>
 									<h2 class="text-xl font-bold text-white">Replay Mode</h2>
 									<p class="mt-1 text-sm text-gray-300">
-										Generation is disabled. The radio is replaying random "lofi" songs from the existing
-										collection.
+										New song generation is currently disabled. The radio is playing lofi tracks from the library.
 									</p>
 								</div>
 							</div>
