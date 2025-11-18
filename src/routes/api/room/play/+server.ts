@@ -40,10 +40,27 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		// Update the room to set this track as current
+		// Select a random lofi track for next track (excluding the current one)
+		let nextTrackId = null;
+		try {
+			const lofiTracks = await pb.collection('radio_music_tracks').getFullList({
+				sort: '-created',
+				filter: `tags ~ "lofi" && id != "${trackId}"`
+			});
+			
+			if (lofiTracks.length > 0) {
+				const randomIndex = Math.floor(Math.random() * lofiTracks.length);
+				nextTrackId = lofiTracks[randomIndex].id;
+			}
+		} catch (error) {
+			console.error('Error selecting next track:', error);
+			// Continue even if we can't set a next track
+		}
+
+		// Update the room to set this track as current and set next track
 		await pb.collection('radio_rooms').update(room.id, {
 			current_track: trackId,
-			next_track: null,
+			next_track: nextTrackId,
 			current_start: new Date().toISOString()
 		});
 
