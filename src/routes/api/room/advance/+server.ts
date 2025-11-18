@@ -58,10 +58,36 @@ export const POST: RequestHandler = async ({ request }) => {
                     active_request: data.data.recordId
                 };
             } else {
-                return json(
-                    { error: 'Failed to generate song' },
-                    { status: response.status }
-                );
+                // If generation fails, randomly select a song from all available songs
+                try {
+                    // Get all tracks (fetch in batches if needed)
+                    const allTracks = await pb.collection('radio_music_tracks').getFullList({
+                        sort: '-created'
+                    });
+                    
+                    if (allTracks.length > 0) {
+                        // Randomly select a track
+                        const randomIndex = Math.floor(Math.random() * allTracks.length);
+                        const randomTrack = allTracks[randomIndex];
+                        
+                        updateData = {
+                            ...updateData,
+                            next_track: randomTrack.id
+                        };
+                        console.log('Generation failed, randomly selected track:', randomTrack.id);
+                    } else {
+                        return json(
+                            { error: 'Failed to generate song and no tracks available' },
+                            { status: 500 }
+                        );
+                    }
+                } catch (error) {
+                    console.error('Error selecting random track:', error);
+                    return json(
+                        { error: 'Failed to generate song and failed to select random track' },
+                        { status: 500 }
+                    );
+                }
             }
         }
 
