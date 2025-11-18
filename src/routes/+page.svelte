@@ -32,6 +32,7 @@
 	let isUpdatingPrompt = $state(false);
 	let isUpdatingInstrumental = $state(false);
 	let currentStart = $state<string | null>(null);
+	let disableGenerate = $state(false);
 
 	onMount(async () => {
 		// Load volume from localStorage
@@ -92,6 +93,7 @@
 		generationPrompt = room.prompt || '';
 		instrumental = room.instrumental || false;
 		currentStart = room.current_start || null;
+		disableGenerate = room.disable_generate || false;
 
 		// Subscribe to changes only in the specified record
 		pb.collection('radio_rooms').subscribe(
@@ -103,11 +105,13 @@
 				const newPrompt = e.record.prompt || '';
 				const newInstrumental = e.record.instrumental || false;
 				const newCurrentStart = e.record.current_start || null;
+				const newDisableGenerate = e.record.disable_generate || false;
 
 				// Update next track and active request status
 				nextTrack = newNextTrack || null;
 				activeRequest = newActiveRequest;
 				currentStart = newCurrentStart;
+				disableGenerate = newDisableGenerate;
 				
 				// Update prompt and instrumental from room (only if changed externally and we're not currently updating)
 				if (!isUpdatingPrompt && newPrompt !== generationPrompt) {
@@ -237,7 +241,7 @@
 			
 			// Update the source
 			audioElement.pause();
-			audioElement.src = track.audio_url;
+			audioElement.src = track.audio_url; 
 			audioElement.load();
 		} else {
 			audioElement.pause();
@@ -589,41 +593,61 @@
 				</div>
 			{/if}
 
-			<!-- Generation Prompt Box -->
-			<div class="mt-8 rounded-lg border border-white/20 bg-white/5 p-6">
-				<h2 class="mb-4 text-2xl font-bold text-white">Generation Prompt</h2>
-				<div class="space-y-4">
-					<div>
-						<label for="prompt" class="mb-2 block text-sm font-medium text-gray-300">
-							Enter a prompt for the next song
-						</label>
-						<textarea
-							id="prompt"
-							bind:value={generationPrompt}
-							oninput={updateRoomPrompt}
-							placeholder="e.g., A upbeat electronic dance track with catchy melodies..."
-							rows="3"
-							maxlength="500"
-							class="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500 focus:outline-none"
-						></textarea>
-						<p class="mt-1 text-xs text-gray-400">
-							{generationPrompt.length}/500 characters
-						</p>
-					</div>
-					
+			{#if disableGenerate}
+				<!-- Replay Mode Message -->
+				<div class="mt-8 rounded-lg border border-white/20 bg-white/5 p-6">
 					<div class="flex items-center gap-3">
-						<label class="flex cursor-pointer items-center gap-2">
-							<input
-								type="checkbox"
-								bind:checked={instrumental}
-								onchange={updateRoomInstrumental}
-								class="h-5 w-5 cursor-pointer rounded border-white/20 bg-white/10 text-purple-600 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0"
-							/>
-							<span class="text-sm font-medium text-gray-300">Instrumental</span>
-						</label>
+						<svg class="h-6 w-6 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+						</svg>
+						<div>
+							<h2 class="text-xl font-bold text-white">Replay Mode</h2>
+							<p class="mt-1 text-sm text-gray-300">
+								Generation is disabled. The radio is replaying random songs from the existing collection.
+							</p>
+						</div>
 					</div>
 				</div>
-			</div>
+			{:else}
+				<!-- Generation Prompt Box -->
+				<div class="mt-8 rounded-lg border border-white/20 bg-white/5 p-6">
+					<h2 class="mb-4 text-2xl font-bold text-white">Generation Prompt</h2>
+					<div class="space-y-4">
+						<div>
+							<label for="prompt" class="mb-2 block text-sm font-medium text-gray-300">
+								Enter a prompt for the next generated song
+							</label>
+							<p class="mb-3 text-xs text-gray-400">
+								This prompt will be used when generating the next new song. If there's already a song queued up, this will apply to the song generated after that.
+							</p>
+							<textarea
+								id="prompt"
+								bind:value={generationPrompt}
+								oninput={updateRoomPrompt}
+								placeholder="e.g., A upbeat electronic dance track with catchy melodies..."
+								rows="3"
+								maxlength="500"
+								class="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+							></textarea>
+							<p class="mt-1 text-xs text-gray-400">
+								{generationPrompt.length}/500 characters
+							</p>
+						</div>
+						
+						<div class="flex items-center gap-3">
+							<label class="flex cursor-pointer items-center gap-2">
+								<input
+									type="checkbox"
+									bind:checked={instrumental}
+									onchange={updateRoomInstrumental}
+									class="h-5 w-5 cursor-pointer rounded border-white/20 bg-white/10 text-purple-600 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0"
+								/>
+								<span class="text-sm font-medium text-gray-300">Instrumental</span>
+							</label>
+						</div>
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 </div>

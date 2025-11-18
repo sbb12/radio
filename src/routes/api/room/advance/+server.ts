@@ -38,27 +38,8 @@ export const POST: RequestHandler = async ({ request }) => {
         }
         // no next track at this point, generate if one isnt already on the way
         if (!room.active_request) {
-            const response: any = {ok: false} as any || await fetch(BASE_URL + '/api/music/generate', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    customMode: false,
-                    instrumental: room.instrumental || false,
-                    model: 'V5',
-                    prompt: room.prompt
-                }),
-            });
-            if (response.ok) {
-                const data = await response.json();                
-                console.log({data});
-                updateData = {
-                    ...updateData,
-                    active_request: data.data.recordId
-                };
-            } else {
-                // If generation fails, randomly select a song from all available songs
+            // If generation is disabled, just randomly select a song
+            if (room.disable_generate) {
                 try {
                     // Get all tracks (fetch in batches if needed)
                     const allTracks = await pb.collection('radio_music_tracks').getFullList({
@@ -74,19 +55,72 @@ export const POST: RequestHandler = async ({ request }) => {
                             ...updateData,
                             next_track: randomTrack.id
                         };
-                        console.log('Generation failed, randomly selected track:', randomTrack.id);
+                        console.log('Generation disabled, randomly selected track:', randomTrack.id);
                     } else {
                         return json(
-                            { error: 'Failed to generate song and no tracks available' },
+                            { error: 'No tracks available' },
                             { status: 500 }
                         );
                     }
                 } catch (error) {
                     console.error('Error selecting random track:', error);
                     return json(
-                        { error: 'Failed to generate song and failed to select random track' },
+                        { error: 'Failed to select random track' },
                         { status: 500 }
                     );
+                }
+            } else {
+                // Generation is enabled, try to generate a new song
+                const response = await fetch(BASE_URL + '/api/music/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        customMode: false,
+                        instrumental: room.instrumental || false,
+                        model: 'V5',
+                        prompt: room.prompt
+                    }),
+                });
+                if (response.ok) {
+                    const data = await response.json();                
+                    console.log({data});
+                    updateData = {
+                        ...updateData,
+                        active_request: data.data.recordId
+                    };
+                } else {
+                    // If generation fails, randomly select a song from all available songs
+                    try {
+                        // Get all tracks (fetch in batches if needed)
+                        const allTracks = await pb.collection('radio_music_tracks').getFullList({
+                            sort: '-created'
+                        });
+                        
+                        if (allTracks.length > 0) {
+                            // Randomly select a track
+                            const randomIndex = Math.floor(Math.random() * allTracks.length);
+                            const randomTrack = allTracks[randomIndex];
+                            
+                            updateData = {
+                                ...updateData,
+                                next_track: randomTrack.id
+                            };
+                            console.log('Generation failed, randomly selected track:', randomTrack.id);
+                        } else {
+                            return json(
+                                { error: 'Failed to generate song and no tracks available' },
+                                { status: 500 }
+                            );
+                        }
+                    } catch (error) {
+                        console.error('Error selecting random track:', error);
+                        return json(
+                            { error: 'Failed to generate song and failed to select random track' },
+                            { status: 500 }
+                        );
+                    }
                 }
             }
         }
