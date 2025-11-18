@@ -34,6 +34,22 @@
 	let currentStart = $state<string | null>(null);
 
 	onMount(async () => {
+		// Load volume from localStorage
+		if (browser) {
+			const savedVolume = localStorage.getItem('radio-volume');
+			if (savedVolume) {
+				const parsedVolume = parseFloat(savedVolume);
+				if (!isNaN(parsedVolume) && parsedVolume >= 0 && parsedVolume <= 1) {
+					volume = parsedVolume;
+				}
+			}
+		}
+
+		// Initialize audio element once
+		if (browser) {
+			initializeAudioElement();
+		}
+
 		// Use PUBLIC_POCKETBASE_URL if available, otherwise fallback to hardcoded URL
 		const pbUrl = (browser && env.PUBLIC_POCKETBASE_URL) || 'https://pb.sercan.co.uk';
 		pb = new PocketBase(pbUrl);
@@ -66,6 +82,8 @@
 		
 		if (room.expand?.current_track) {
 			track = room.expand.current_track;
+			// Update audio source for initial track
+			updateAudioSource();
 		}
 		if (room.expand?.next_track) {
 			nextTrack = room.expand.next_track;
@@ -103,6 +121,8 @@
 				if (currentTrack && currentTrack.track_id !== track?.track_id) {
 					shouldAutoPlay = true;
 					track = currentTrack;
+					// Update audio source when track changes
+					updateAudioSource();
 				}
 			},
 			{
@@ -125,6 +145,12 @@
 		if (inactivityCheckInterval) {
 			clearInterval(inactivityCheckInterval);
 		}
+		// Clean up audio element
+		if (audioElement) {
+			audioElement.pause();
+			audioElement.src = '';
+			audioElement = null;
+		}
 		pb?.collection('radio_rooms').unsubscribe('corxga7q86bsc0s');
 	});
 
@@ -133,93 +159,91 @@
 		user = $page.data.user;
 	});
 
-	// Reset audio state when track changes
-	$effect(() => {
-		if (track) {
+	// Initialize audio element once
+	function initializeAudioElement() {
+		if (typeof document === 'undefined' || audioElement) return;
+		
+		audioElement = new Audio();
+		audioElement.volume = volume;
+
+		audioElement.addEventListener('loadedmetadata', () => {
+			duration = audioElement?.duration || 0;
+		});
+
+		audioElement.addEventListener('timeupdate', () => {
+			currentTime = audioElement?.currentTime || 0;
+		});
+
+		audioElement.addEventListener('ended', () => {
+			isPlaying = false;
+			currentTime = 0;
+			handleTrackEnded();
+		});
+
+		audioElement.addEventListener('play', () => {
+			isPlaying = true;
+			shouldAutoPlay = true;
+			handleTrackPlay();
+		});
+
+		audioElement.addEventListener('pause', () => {
+			isPlaying = false;
+			shouldAutoPlay = false;
+			handleTrackPause();
+		});
+
+		audioElement.addEventListener('loadstart', () => {
+			isLoading = true;
+		});
+
+		audioElement.addEventListener('canplay', () => {
+			isLoading = false;
+			// Auto-play when audio is ready if flag is set
+			if (shouldAutoPlay && audioElement) {
+				// Calculate elapsed time since current_start and skip to that position
+				if (currentStart && duration > 0) {
+					const startTime = new Date(currentStart).getTime();
+					const now = Date.now();
+					const elapsedSeconds = (now - startTime) / 1000;
+					
+					// Only skip if elapsed time is positive and less than duration
+					if (elapsedSeconds > 0 && elapsedSeconds < duration) {
+						audioElement.currentTime = elapsedSeconds;
+						currentTime = elapsedSeconds;
+					}
+				}
+				audioElement.play().catch((err) => {
+					console.error('Auto-play error:', err);
+				});
+				shouldAutoPlay = false;
+			}
+		});
+	}
+
+	// Update audio source when track changes
+	function updateAudioSource() {
+		if (!audioElement) {
+			initializeAudioElement();
+		}
+		
+		if (!audioElement) return;
+
+		if (track?.audio_url) {
+			// Reset audio state
 			isPlaying = false;
 			currentTime = 0;
 			duration = 0;
 			isLoading = false;
-		}
-	});
-
-	// Initialize audio element
-	$effect(() => {
-		// Clean up previous audio element if track changes or becomes null
-		if (audioElement) {
+			
+			// Update the source
 			audioElement.pause();
-			audioElement = null;
+			audioElement.src = track.audio_url;
+			audioElement.load();
+		} else {
+			audioElement.pause();
+			audioElement.src = '';
 		}
-
-		if (track?.audio_url && typeof document !== 'undefined') {
-			audioElement = new Audio(track.audio_url);
-			audioElement.volume = volume;
-
-			audioElement.addEventListener('loadedmetadata', () => {
-				duration = audioElement?.duration || 0;
-			});
-
-			audioElement.addEventListener('timeupdate', () => {
-				currentTime = audioElement?.currentTime || 0;
-			});
-
-			audioElement.addEventListener('ended', () => {
-				isPlaying = false;
-				currentTime = 0;
-				handleTrackEnded();
-			});
-
-			audioElement.addEventListener('play', () => {
-				isPlaying = true;
-				shouldAutoPlay = true;
-				handleTrackPlay();
-			});
-
-			audioElement.addEventListener('pause', () => {
-				isPlaying = false;
-				shouldAutoPlay = false;
-				handleTrackPause();
-			});
-
-			audioElement.addEventListener('loadstart', () => {
-				isLoading = true;
-			});
-
-			audioElement.addEventListener('canplay', () => {
-				isLoading = false;
-				// Auto-play when audio is ready if flag is set
-				if (shouldAutoPlay && audioElement) {
-					// Calculate elapsed time since current_start and skip to that position
-					if (currentStart && duration > 0) {
-						const startTime = new Date(currentStart).getTime();
-						const now = Date.now();
-						const elapsedSeconds = (now - startTime) / 1000;
-						
-						// Only skip if elapsed time is positive and less than duration
-						if (elapsedSeconds > 0 && elapsedSeconds < duration) {
-							audioElement.currentTime = elapsedSeconds;
-							currentTime = elapsedSeconds;
-						}
-					}
-					audioElement.play().catch((err) => {
-						console.error('Auto-play error:', err);
-					});
-					shouldAutoPlay = false;
-				}
-			});
-
-			return () => {
-				audioElement?.pause();
-				audioElement = null;
-			};
-		}
-	});
-
-	$effect(() => {
-		if (audioElement) {
-			audioElement.volume = volume;
-		}
-	});
+	}
 
 	function togglePlay() {
 		if (!audioElement) return;
@@ -256,8 +280,13 @@
 	function handleVolumeChange(event: Event) {
 		if (!audioElement) return;
 		const target = event.target as HTMLInputElement;
-		volume = parseFloat(target.value) / 100;
-		// The $effect will handle updating audioElement.volume
+		const newVolume = parseFloat(target.value) / 100;
+		volume = newVolume;
+		audioElement.volume = newVolume;
+		// Save to localStorage
+		if (typeof window !== 'undefined') {
+			localStorage.setItem('radio-volume', newVolume.toString());
+		}
 	}
 
 	function formatTime(seconds: number): string {
