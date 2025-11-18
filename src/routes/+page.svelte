@@ -257,7 +257,7 @@
 		if (!audioElement) return;
 		const target = event.target as HTMLInputElement;
 		volume = parseFloat(target.value) / 100;
-		audioElement.volume = volume;
+		// The $effect will handle updating audioElement.volume
 	}
 
 	function formatTime(seconds: number): string {
