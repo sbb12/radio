@@ -38,7 +38,7 @@ export const POST: RequestHandler = async ({ request }) => {
         }
         // no next track at this point, generate if one isnt already on the way
         if (!room.active_request) {
-            const response = await fetch(BASE_URL + '/api/music/generate', {
+            const response: any = {ok: false} as any || await fetch(BASE_URL + '/api/music/generate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

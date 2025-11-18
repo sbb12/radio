@@ -502,7 +502,7 @@
 								onclick={handleAdvanceTrack}
 								class="rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:from-purple-700 hover:to-pink-700 focus:ring-2 focus:ring-purple-500 focus:outline-none"
 							>
-								Advance
+								Skip
 							</button>
 						{/if}
 					</div>
