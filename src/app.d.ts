@@ -8,6 +8,7 @@ declare global {
 		interface Locals {
 			pb?: PocketBase;
 			user?: any;
+			token?: string;
 		}
 		// interface PageData {}
 		// interface PageState {}
@@ -15,4 +16,4 @@ declare global {
 	}
 }
 
-export {};
+export { };

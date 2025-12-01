@@ -23,7 +23,7 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 	const isApiRoute = event.url.pathname.startsWith('/api');
 
 	// Allow access to login page and API routes without auth
-	if (isLoginPage || isApiRoute || 1) {
+	if (isLoginPage || isApiRoute) {
 		const response = await resolve(event);
 		// Add CORS headers to API responses
 		if (isApiRoute) {
@@ -42,7 +42,7 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 		}
 
 		const pb = new PocketBase(POCKETBASE_URL);
-		const token = event.cookies.get('stoken');
+		const token = event.locals.token || event.cookies.get('token');
 
 		// Load auth from cookie string using custom cookie name
 		if (token) {
@@ -51,7 +51,7 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 				await pb.collection('users').authRefresh();
 			} catch (error) {
 				console.error('Auth refresh error:', error);
-				event.cookies.delete('stoken', { path: '/' });
+				event.cookies.delete('token', { path: '/' });
 				throw redirect(302, '/login');
 			}
 		}
@@ -59,7 +59,7 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 		// Verify token is valid
 		if (!pb.authStore.isValid || !pb.authStore.model) {
 			// Invalid token, clear cookie and redirect
-			event.cookies.delete('stoken', { path: '/' });
+			event.cookies.delete('token', { path: '/' });
 			throw redirect(302, '/login');
 		}
 
@@ -72,7 +72,7 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 			throw error;
 		}
 		console.error('Auth validation error:', error);
-		event.cookies.delete('stoken', { path: '/' });
+		event.cookies.delete('token', { path: '/' });
 		throw redirect(302, '/login');
 	}
 

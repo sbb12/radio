@@ -6,6 +6,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { env } from '$env/dynamic/public';
+	import { currentTrack, isPlaying } from '$lib/stores';
 	import 'remixicon/fonts/remixicon.css';
 
 	let { data } = $props();
@@ -19,7 +20,7 @@
 	let promptUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	let audioElement: HTMLAudioElement | null = null;
-	let isPlaying = $state(false);
+	let radioIsPlaying = $state(false);
 	let currentTime = $state(0);
 	let duration = $state(0);
 	let volume = $state(1);
@@ -36,21 +37,6 @@
 	let disableGenerate = $state(false);
 	let allTracks = $state<any[]>([]);
 	let isLoadingTracks = $state(false);
-	let searchQuery = $state('');
-
-	// Filtered tracks based on search
-	let filteredTracks = $derived(
-		searchQuery.trim() === ''
-			? allTracks
-			: allTracks.filter((song) => {
-					const query = searchQuery.toLowerCase();
-					return (
-						song.title?.toLowerCase().includes(query) ||
-						song.tags?.toLowerCase().includes(query) ||
-						song.prompt?.toLowerCase().includes(query)
-					);
-				})
-	);
 
 	onMount(async () => {
 		// Load volume from localStorage
@@ -164,9 +150,6 @@
 				expand: 'current_track,next_track,active_request'
 			}
 		);
-
-		// Load all tracks
-		loadAllTracks();
 	});
 
 	onDestroy(async () => {
@@ -220,19 +203,21 @@
 		});
 
 		audioElement.addEventListener('ended', () => {
-			isPlaying = false;
+			radioIsPlaying = false;			
 			currentTime = 0;
 			handleTrackEnded();
 		});
 
 		audioElement.addEventListener('play', () => {
-			isPlaying = true;
+			radioIsPlaying = true;
+			isPlaying.set(false)
+			currentTrack.set(null)
 			shouldAutoPlay = true;
 			handleTrackPlay();
 		});
 
 		audioElement.addEventListener('pause', () => {
-			isPlaying = false;
+			radioIsPlaying = false;
 			shouldAutoPlay = false;
 			handleTrackPause();
 		});
@@ -275,7 +260,7 @@
 
 		if (track?.audio_url || track?.stream_audio_url) {
 			// Reset audio state
-			isPlaying = false;
+			radioIsPlaying = false;
 			currentTime = 0;
 			duration = 0;
 			isLoading = false;
@@ -293,7 +278,7 @@
 	function togglePlay() {
 		if (!audioElement) return;
 
-		if (isPlaying) {
+		if (radioIsPlaying) {
 			audioElement.pause();
 		} else {
 			// Calculate elapsed time since current_start and skip to that position when play is pressed
@@ -425,345 +410,214 @@
 			console.error('Logout error:', err);
 		}
 	}
-
-	async function loadAllTracks() {
-		if (!browser) return;
-
-		isLoadingTracks = true;
-		try {
-			const response = await fetch('/api/music/tracks?perPage=100');
-			const data = await response.json();
-			if (data.tracks) {
-				allTracks = data.tracks;
-			}
-		} catch (err) {
-			console.error('Error loading tracks:', err);
-		} finally {
-			isLoadingTracks = false;
-		}
-	}
-
-	async function handlePlayTrack(selectedTrack: any) {
-		if (!selectedTrack || !selectedTrack.id) return;
-
-		try {
-			const response = await fetch('/api/room/play', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({ trackId: selectedTrack.id })
-			});
-
-			if (!response.ok) {
-				const error = await response.json();
-				console.error('Error playing track:', error);
-			}
-			// The track will be updated via the subscription
-		} catch (err) {
-			console.error('Error playing track:', err);
-		}
-	}
 </script>
 
 <div
-	class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 px-4 py-12 sm:px-6 lg:px-8"
+	class="h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4 py-12 sm:px-6 lg:px-8"
 >
 	<div class="mx-auto max-w-7xl">
-		<div class="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-stretch">
-			<!-- All Songs List - Left Tile -->
-			<div class="order-2 flex max-h-full flex-col rounded-2xl border border-white/20 bg-white/10 p-6 shadow-2xl backdrop-blur-lg lg:order-1">
-				<h2 class="mb-4 text-2xl font-bold text-white">All Songs</h2>
-
-				<!-- Search Input -->
-				<div class="mb-4">
-					<div class="relative">
-						<input
-							type="text"
-							bind:value={searchQuery}
-							placeholder="Search songs..."
-							class="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-2 pl-10 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500 focus:outline-none"
-						/>
-						<!-- Search icon -->
-						<i class="ri-search-line absolute left-3 top-2 h-5 w-5 text-gray-400"></i>
-						{#if searchQuery}
-							<button
-								onclick={() => (searchQuery = '')}
-								aria-label="Clear search"
-								class="absolute top-2 right-3 text-gray-400 hover:text-white"
-							>
-								<i class="ri-close-line h-5 w-5"></i>
-							</button>
-						{/if}
+		<div class="order-1 h-fit lg:order-2 lg:col-span-2">
+			<div
+				class="flex h-full flex-col rounded-2xl border border-white/20 bg-white/10 p-8 shadow-2xl backdrop-blur-lg"
+			>
+				<!-- Header -->
+				<div class="mb-8 flex items-center justify-between">
+					<div>
+						<h1 class="mb-2 text-4xl font-bold text-white">Surgo Radio</h1>
+						<p class="text-gray-300">Now Playing</p>
 					</div>
 				</div>
 
-				{#if isLoadingTracks}
-					<div class="flex flex-1 items-center justify-center py-8">
-						<i class="ri-loader-4-line h-8 w-8 animate-spin text-purple-500"></i>
-					</div>
-				{:else if filteredTracks.length === 0}
-					<div class="flex flex-1 items-center justify-center py-8">
-						<p class="text-center text-sm text-gray-400">
-							{searchQuery ? 'No songs found matching your search' : 'No songs available'}
-						</p>
-					</div>
-				{:else}
-					<div class="songs-scrollable flex-1 space-y-2 overflow-y-auto pr-2 max-h-[80vh]">
-						{#each filteredTracks as song (song.id)}
-							<button
-								onclick={() => handlePlayTrack(song)}
-								class="w-full cursor-pointer rounded-lg border border-white/10 bg-white/5 p-3 text-left transition-all duration-200 hover:border-white/20 hover:bg-white/10 {track?.id === song.id ? 'border-purple-500 bg-purple-500/20' : ''}"
+				{#if track}
+					<!-- Track Info -->
+					<div class="mb-8 flex flex-col gap-6 md:flex-row">
+						{#if track.image_url}
+							<img
+								src={track.image_url}
+								alt={track.title}
+								class="h-64 w-full rounded-lg object-cover shadow-lg md:w-64"
+							/>
+						{:else}
+							<div
+								class="flex h-64 w-full items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg md:w-64"
 							>
-								<div class="flex items-center gap-3">
-									{#if song.image_url}
-										<img
-											src={song.image_url}
-											alt={song.title}
-											class="h-12 w-12 flex-shrink-0 rounded-lg object-cover"
-										/>
-									{:else}
-										<div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-pink-600">
-											<i class="ri-music-2-line h-6 w-6 text-white/50"></i>
-										</div>
-									{/if}
-									<div class="min-w-0 flex-1">
-										<div class="flex items-center gap-2">
-											<h3 class="truncate text-sm font-semibold text-white">
-												{song.title || 'Untitled'}
-											</h3>
-											{#if track?.id === song.id}
-												<i class="ri-play-circle-fill h-4 w-4 flex-shrink-0 text-purple-400"></i>
-											{/if}
-										</div>
-										{#if song.tags}
-											<p class="mt-1 truncate text-xs text-gray-400">{song.tags}</p>
-										{/if}
-										<div class="mt-1 flex items-center gap-3 text-xs text-gray-500">
-											{#if song.duration}
-												<span>{formatTime(song.duration)}</span>
-											{/if}
-										</div>
-									</div>
-								</div>
-							</button>
-						{/each}
-					</div>
-				{/if}
-			</div>
-
-			<!-- Main Radio Controls - Right Tile -->
-			<div class="order-1 h-fit lg:col-span-2 lg:order-2">
-				<div class="flex h-full flex-col rounded-2xl border border-white/20 bg-white/10 p-8 shadow-2xl backdrop-blur-lg">
-					<!-- Header -->
-					<div class="mb-8 flex items-center justify-between">
-						<div>
-							<h1 class="mb-2 text-4xl font-bold text-white">Surgo Radio</h1>
-							<p class="text-gray-300">Now Playing</p>
-						</div>
-						{#if user}
-							<div class="flex items-center space-x-4">
-								<span class="text-sm text-gray-300">{user.email}</span>
-								<button
-									onclick={handleLogout}
-									class="rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:bg-white/20 focus:ring-2 focus:ring-purple-500 focus:outline-none"
-								>
-									Logout
-								</button>
+								<i class="ri-music-2-line text-6xl text-white/50"></i>
 							</div>
 						{/if}
+
+						<div class="flex-1">
+							<h2 class="mb-2 text-3xl font-bold text-white">{track.title}</h2>
+							{#if track.tags}
+								<p class="mb-2 text-gray-300">Tags: {track.tags}</p>
+							{/if}
+							{#if track.model_name}
+								<p class="mb-2 text-sm text-gray-400">Model: {track.model_name}</p>
+							{/if}
+							{#if track.prompt}
+								<p class="mt-4 line-clamp-3 text-sm text-gray-300">{track.prompt}</p>
+							{/if}
+							{#if track.create_time}
+								<p class="mt-4 text-xs text-gray-400">Created: {track.create_time}</p>
+							{/if}
+						</div>
 					</div>
 
-					{#if track}
-						<!-- Track Info -->
-						<div class="mb-8 flex flex-col gap-6 md:flex-row">
-							{#if track.image_url}
-								<img
-									src={track.image_url}
-									alt={track.title}
-									class="h-64 w-full rounded-lg object-cover shadow-lg md:w-64"
-								/>
-							{:else}
-								<div
-									class="flex h-64 w-full items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg md:w-64"
-								>
-									<i class="ri-music-2-line text-6xl text-white/50"></i>
-								</div>
-							{/if}
-
+					<!-- Next Track Status -->
+					<div class="mb-6 rounded-lg border border-white/10 bg-white/5 p-4">
+						<div class="flex items-center justify-between">
 							<div class="flex-1">
-								<h2 class="mb-2 text-3xl font-bold text-white">{track.title}</h2>
-								{#if track.tags}
-									<p class="mb-2 text-gray-300">Tags: {track.tags}</p>
-								{/if}
-								{#if track.model_name}
-									<p class="mb-2 text-sm text-gray-400">Model: {track.model_name}</p>
-								{/if}
-								{#if track.prompt}
-									<p class="mt-4 line-clamp-3 text-sm text-gray-300">{track.prompt}</p>
-								{/if}
-								{#if track.create_time}
-									<p class="mt-4 text-xs text-gray-400">Created: {track.create_time}</p>
-								{/if}
-							</div>
-						</div>
-
-						<!-- Next Track Status -->
-						<div class="mb-6 rounded-lg border border-white/10 bg-white/5 p-4">
-							<div class="flex items-center justify-between">
-								<div class="flex-1">
-									<h3 class="mb-2 text-sm font-semibold tracking-wide text-gray-400 uppercase">
-										Next Track Status
-									</h3>
-									{#if nextTrack}
-										<div class="flex items-center gap-3">
-											<div class="flex h-3 w-3 items-center justify-center">
-												<div class="h-2 w-2 rounded-full bg-green-500"></div>
-											</div>
-											<div class="flex-1">
-												<p class="font-semibold text-white">{nextTrack.title}</p>
-												<p class="text-sm text-gray-400">Ready to play</p>
-											</div>
-										</div>
-									{:else if activeRequest}
-										<div class="flex items-center gap-3">
-											<div class="flex h-3 w-3 items-center justify-center">
-												<i class="ri-loader-4-line h-3 w-3 animate-spin text-yellow-500"></i>
-											</div>
-											<div class="flex-1">
-												<p class="font-semibold text-white">Generating next track...</p>
-												<p class="text-sm text-gray-400">Please wait</p>
-											</div>
-										</div>
-									{:else}
-										<div class="flex items-center gap-3">
-											<div class="flex h-3 w-3 items-center justify-center">
-												<div class="h-2 w-2 rounded-full bg-gray-500"></div>
-											</div>
-											<div class="flex-1">
-												<p class="font-semibold text-white">No next track</p>
-												<p class="text-sm text-gray-400">Waiting for generation</p>
-											</div>
-										</div>
-									{/if}
-								</div>
+								<h3 class="mb-2 text-sm font-semibold tracking-wide text-gray-400 uppercase">
+									Next Track Status
+								</h3>
 								{#if nextTrack}
-									<button
-										onclick={handleAdvanceTrack}
-										class="cursor-pointer rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:from-purple-700 hover:to-pink-700 focus:ring-2 focus:ring-purple-500 focus:outline-none"
-									>
-										Skip
-									</button>
+									<div class="flex items-center gap-3">
+										<div class="flex h-3 w-3 items-center justify-center">
+											<div class="h-2 w-2 rounded-full bg-green-500"></div>
+										</div>
+										<div class="flex-1">
+											<p class="font-semibold text-white">{nextTrack.title}</p>
+											<p class="text-sm text-gray-400">Ready to play</p>
+										</div>
+									</div>
+								{:else if activeRequest}
+									<div class="flex items-center gap-3">
+										<div class="flex h-3 w-3 items-center justify-center">
+											<i class="ri-loader-4-line h-3 w-3 animate-spin text-yellow-500"></i>
+										</div>
+										<div class="flex-1">
+											<p class="font-semibold text-white">Generating next track...</p>
+											<p class="text-sm text-gray-400">Please wait</p>
+										</div>
+									</div>
+								{:else}
+									<div class="flex items-center gap-3">
+										<div class="flex h-3 w-3 items-center justify-center">
+											<div class="h-2 w-2 rounded-full bg-gray-500"></div>
+										</div>
+										<div class="flex-1">
+											<p class="font-semibold text-white">No next track</p>
+											<p class="text-sm text-gray-400">Waiting for generation</p>
+										</div>
+									</div>
 								{/if}
+							</div>
+							{#if nextTrack}
+								<button
+									onclick={handleAdvanceTrack}
+									class="cursor-pointer rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:from-purple-700 hover:to-pink-700 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+								>
+									Skip
+								</button>
+							{/if}
+						</div>
+					</div>
+
+					<!-- Audio Player -->
+					<div class="space-y-4">
+						<!-- Progress Bar -->
+						<div class="space-y-2">
+							<input
+								type="range"
+								min="0"
+								max="100"
+								value={duration > 0 ? (currentTime / duration) * 100 : 0}
+								oninput={handleSeek}
+								class="h-2 w-full cursor-pointer appearance-none rounded-lg bg-white/20 accent-purple-600"
+							/>
+							<div class="flex justify-between text-xs text-gray-400">
+								<span>{formatTime(currentTime)}</span>
+								<span>{formatTime(duration)}</span>
 							</div>
 						</div>
 
-						<!-- Audio Player -->
-						<div class="space-y-4">
-							<!-- Progress Bar -->
-							<div class="space-y-2">
+						<!-- Controls -->
+						<div class="flex items-center justify-center space-x-6">
+							<!-- Play/Pause Button -->
+							<button
+								onclick={togglePlay}
+								disabled={isLoading}
+								class="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg transition-all duration-200 hover:from-purple-700 hover:to-pink-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-slate-900 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								{#if isLoading}
+									<i class="ri-loader-4-line animate-spin text-3xl"></i>
+								{:else if radioIsPlaying}
+									<i class="ri-pause-fill text-3xl"></i>
+								{:else}
+									<i class="ri-play-fill ml-1 text-3xl"></i>
+								{/if}
+							</button>
+
+							<!-- Volume Control -->
+							<div class="flex items-center space-x-2">
+								<i class="ri-volume-up-line text-2xl text-gray-300"></i>
 								<input
 									type="range"
 									min="0"
 									max="100"
-									value={duration > 0 ? (currentTime / duration) * 100 : 0}
-									oninput={handleSeek}
-									class="h-2 w-full cursor-pointer appearance-none rounded-lg bg-white/20 accent-purple-600"
+									value={volume * 100}
+									oninput={handleVolumeChange}
+									class="h-2 w-24 cursor-pointer appearance-none rounded-lg bg-white/20 accent-purple-600"
 								/>
-								<div class="flex justify-between text-xs text-gray-400">
-									<span>{formatTime(currentTime)}</span>
-									<span>{formatTime(duration)}</span>
-								</div>
-							</div>
-
-							<!-- Controls -->
-							<div class="flex items-center justify-center space-x-6">
-								<!-- Play/Pause Button -->
-								<button
-									onclick={togglePlay}
-									disabled={isLoading}
-									class="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg transition-all duration-200 hover:from-purple-700 hover:to-pink-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-slate-900 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-								>
-									{#if isLoading}
-										<i class="ri-loader-4-line text-3xl animate-spin"></i>
-									{:else if isPlaying}
-										<i class="ri-pause-fill text-3xl"></i>
-									{:else}
-										<i class="ri-play-fill ml-1 text-3xl"></i>
-									{/if}
-								</button>
-
-								<!-- Volume Control -->
-								<div class="flex items-center space-x-2">
-									<i class="ri-volume-up-line text-2xl text-gray-300"></i>
-									<input
-										type="range"
-										min="0"
-										max="100"
-										value={volume * 100}
-										oninput={handleVolumeChange}
-										class="h-2 w-24 cursor-pointer appearance-none rounded-lg bg-white/20 accent-purple-600"
-									/>
-								</div>
 							</div>
 						</div>
-					{/if}
+					</div>
+				{/if}
 
-					{#if disableGenerate}
-						<!-- Replay Mode Message -->
-						<div class="mt-8 rounded-lg border border-white/20 bg-white/5 p-6">
+				{#if disableGenerate}
+					<!-- Replay Mode Message -->
+					<div class="mt-8 rounded-lg border border-white/20 bg-white/5 p-6">
+						<div class="flex items-center gap-3">
+							<i class="ri-refresh-line text-2xl text-purple-400"></i>
+							<div>
+								<h2 class="text-xl font-bold text-white">Replay Mode</h2>
+								<p class="mt-1 text-sm text-gray-300">
+									New song generation is currently disabled. The radio is playing lofi tracks from
+									the library.
+								</p>
+							</div>
+						</div>
+					</div>
+				{:else}
+					<!-- Generation Prompt Box -->
+					<div class="mt-8 rounded-lg border border-white/20 bg-white/5 p-6">
+						<h2 class="mb-4 text-2xl font-bold text-white">Generation Prompt</h2>
+						<div class="space-y-4">
+							<div>
+								<label for="prompt" class="mb-2 block text-sm font-medium text-gray-300">
+									Enter a prompt for the next generated song
+								</label>
+								<p class="mb-3 text-xs text-gray-400">
+									This prompt will be used when generating the next new song. If there's already a
+									song queued up, this will apply to the song generated after that.
+								</p>
+								<textarea
+									id="prompt"
+									bind:value={generationPrompt}
+									oninput={updateRoomPrompt}
+									placeholder="e.g., A upbeat electronic dance track with catchy melodies..."
+									rows="3"
+									maxlength="500"
+									class="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+								></textarea>
+								<p class="mt-1 text-xs text-gray-400">
+									{generationPrompt.length}/500 characters
+								</p>
+							</div>
+
 							<div class="flex items-center gap-3">
-								<i class="ri-refresh-line text-2xl text-purple-400"></i>
-								<div>
-									<h2 class="text-xl font-bold text-white">Replay Mode</h2>
-									<p class="mt-1 text-sm text-gray-300">
-										New song generation is currently disabled. The radio is playing lofi tracks from the library.
-									</p>
-								</div>
+								<label class="flex cursor-pointer items-center gap-2">
+									<input
+										type="checkbox"
+										bind:checked={instrumental}
+										onchange={updateRoomInstrumental}
+										class="h-5 w-5 cursor-pointer rounded border-white/20 bg-white/10 text-purple-600 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0"
+									/>
+									<span class="text-sm font-medium text-gray-300">Instrumental</span>
+								</label>
 							</div>
 						</div>
-					{:else}
-						<!-- Generation Prompt Box -->
-						<div class="mt-8 rounded-lg border border-white/20 bg-white/5 p-6">
-							<h2 class="mb-4 text-2xl font-bold text-white">Generation Prompt</h2>
-							<div class="space-y-4">
-								<div>
-									<label for="prompt" class="mb-2 block text-sm font-medium text-gray-300">
-										Enter a prompt for the next generated song
-									</label>
-									<p class="mb-3 text-xs text-gray-400">
-										This prompt will be used when generating the next new song. If there's already a
-										song queued up, this will apply to the song generated after that.
-									</p>
-									<textarea
-										id="prompt"
-										bind:value={generationPrompt}
-										oninput={updateRoomPrompt}
-										placeholder="e.g., A upbeat electronic dance track with catchy melodies..."
-										rows="3"
-										maxlength="500"
-										class="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500 focus:outline-none"
-									></textarea>
-									<p class="mt-1 text-xs text-gray-400">
-										{generationPrompt.length}/500 characters
-									</p>
-								</div>
-
-								<div class="flex items-center gap-3">
-									<label class="flex cursor-pointer items-center gap-2">
-										<input
-											type="checkbox"
-											bind:checked={instrumental}
-											onchange={updateRoomInstrumental}
-											class="h-5 w-5 cursor-pointer rounded border-white/20 bg-white/10 text-purple-600 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0"
-										/>
-										<span class="text-sm font-medium text-gray-300">Instrumental</span>
-									</label>
-								</div>
-							</div>
-						</div>
-					{/if}
-				</div>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>

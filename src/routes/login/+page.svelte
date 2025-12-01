@@ -1,23 +1,24 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import PocketBase from 'pocketbase';
-	import { browser } from '$app/environment';
-	import { env } from '$env/dynamic/public';
+	import { onMount } from 'svelte';
 
 	let email = $state('');
 	let password = $state('');
+	let passwordConfirm = $state('');
 	let loading = $state(false);
 	let error = $state<string | null>(null);
+	let isSignUp = $state(false);
 
 	let pb: PocketBase | null = null;
 
-	if (browser) {
+	onMount(() => {
 		// Initialize PocketBase client
-		const pbUrl = "https://pb.sercan.co.uk";
+		const pbUrl = 'https://pb.sercan.co.uk';
 		pb = new PocketBase(pbUrl);
-	}
+	});
 
-	async function handleEmailLogin(event: SubmitEvent) {
+	async function handleSubmit(event: SubmitEvent) {
 		event.preventDefault();
 		error = null;
 		loading = true;
@@ -29,28 +30,43 @@
 		}
 
 		try {
-			// Authenticate with email/password
-			const authData = await pb.collection('users').authWithPassword(email, password);
+			if (isSignUp) {
+				// Sign Up Logic
+				if (password !== passwordConfirm) {
+					throw new Error('Passwords do not match');
+				}
 
-			// Set auth cookie via API to ensure proper cookie handling
-			await fetch('/api/auth/set-cookie', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					cookie: pb.authStore.exportToCookie({}, 'stoken')
-				})
-			});
+				// Create user
+				await pb.collection('users').create({
+					email,
+					name: email.split('@')[0],
+					password,
+					passwordConfirm
+				});
 
-			// Redirect to home page
-			await goto('/');
+				// Automatically log in after creation
+				await login();
+			} else {
+				// Login Logic
+				await login();
+			}
 		} catch (err: any) {
-			console.error('Login error:', err);
-			error = err.message || 'Login failed. Please check your credentials.';
+			console.error('Auth error:', err);
+			error = err.message || (isSignUp ? 'Failed to create account' : 'Login failed');
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function login() {
+		if (!pb) return;
+
+		// Authenticate with email/password
+		const authData = await pb.collection('users').authWithPassword(email, password);
+		document.cookie = `token=${authData.token}; path=/; max-age=604800; same-site=lax; http-only=false; secure=false`;
+
+		// Redirect to user page
+		await goto('/me');
 	}
 
 	async function handleGoogleLogin() {
@@ -66,7 +82,7 @@
 		try {
 			// Get OAuth providers
 			const authMethods = await pb.collection('users').listAuthMethods();
-			const googleProvider = authMethods.oauth2?.providers?.find((p) => p.name === 'google');			
+			const googleProvider = authMethods.oauth2?.providers?.find((p) => p.name === 'google');
 
 			if (!googleProvider) {
 				error = 'Google authentication is not configured';
@@ -74,10 +90,14 @@
 				return;
 			}
 
-			const authData = await pb.collection('users').authWithOAuth2({ provider: 'google', expand: 'user_settings_via_user'})
-			const token = authData.token;	
+			const authData = await pb
+				.collection('users')
+				.authWithOAuth2({ provider: 'google', expand: 'user_settings_via_user' });
+			const token = authData.token;
 
-			document.cookie = `stoken=${token}; path=/; max-age=604800; same-site=lax; http-only=false; secure=false`;
+			console.log(token);
+
+			document.cookie = `token=${token}; path=/; max-age=604800; same-site=lax; http-only=false; secure=false`;
 
 			const resp = await fetch('/api/auth/set-cookie', {
 				method: 'POST',
@@ -94,24 +114,32 @@
 				loading = false;
 				return;
 			}
-			
-			await goto('/');
 
+			await goto('/me');
 		} catch (err: any) {
 			console.error('Google login error:', err);
 			error = err.message || 'Google login failed';
 			loading = false;
 		}
 	}
+
+	function toggleMode() {
+		isSignUp = !isSignUp;
+		error = null;
+		password = '';
+		passwordConfirm = '';
+	}
 </script>
 
 <div
-	class="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 px-4 py-12 sm:px-6 lg:px-8"
+	class="flex h-full items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4 py-12 sm:px-6 lg:px-8"
 >
 	<div class="w-full max-w-md">
 		<div class="rounded-2xl border border-white/20 bg-white/10 p-8 shadow-2xl backdrop-blur-lg">
 			<h1 class="mb-2 text-center text-4xl font-bold text-white">Surgo Radio</h1>
-			<p class="mb-8 text-center text-gray-300">Sign in to your account</p>
+			<p class="mb-8 text-center text-gray-300">
+				{isSignUp ? 'Create your account' : 'Sign in to your account'}
+			</p>
 
 			<!-- Error Message -->
 			{#if error}
@@ -121,7 +149,7 @@
 			{/if}
 
 			<!-- Email/Password Form -->
-			<form onsubmit={handleEmailLogin} class="mb-6 space-y-6">
+			<form onsubmit={handleSubmit} class="mb-6 space-y-6">
 				<div>
 					<label for="email" class="mb-2 block text-sm font-medium text-gray-200"> Email </label>
 					<input
@@ -143,24 +171,55 @@
 						id="password"
 						bind:value={password}
 						required
+						minlength="8"
 						placeholder="••••••••"
 						class="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400 focus:border-transparent focus:ring-2 focus:ring-purple-500 focus:outline-none"
 					/>
 				</div>
+
+				{#if isSignUp}
+					<div>
+						<label for="passwordConfirm" class="mb-2 block text-sm font-medium text-gray-200">
+							Confirm Password
+						</label>
+						<input
+							type="password"
+							id="passwordConfirm"
+							bind:value={passwordConfirm}
+							required
+							minlength="8"
+							placeholder="••••••••"
+							class="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400 focus:border-transparent focus:ring-2 focus:ring-purple-500 focus:outline-none"
+						/>
+					</div>
+				{/if}
 
 				<button
 					type="submit"
 					disabled={loading}
 					class="w-full rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 font-semibold text-white transition-all duration-200 hover:from-purple-700 hover:to-pink-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-slate-900 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 				>
-					{loading ? 'Signing in...' : 'Sign in with Email'}
+					{#if loading}
+						{isSignUp ? 'Creating account...' : 'Signing in...'}
+					{:else}
+						{isSignUp ? 'Create Account' : 'Sign in with Email'}
+					{/if}
 				</button>
 			</form>
 
+			<div class="mt-4 text-center">
+				<button
+					onclick={toggleMode}
+					class="text-sm text-purple-300 hover:text-purple-200 hover:underline focus:outline-none"
+				>
+					{isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+				</button>
+			</div>
+
 			<!-- Divider -->
-			<div class="mb-6 flex flex-row items-center">
+			<div class="my-6 flex flex-row items-center">
 				<div class="w-full border-t border-white/20"></div>
-				<div class="text-sm shrink-0 bg-white/10 px-2 mx-1">
+				<div class="mx-1 shrink-0 bg-white/10 px-2 text-sm">
 					<span class="text-gray-300">Or continue with</span>
 				</div>
 				<div class="w-full border-t border-white/20"></div>

@@ -1,7 +1,7 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { API_KEY, BASE_URL } from '$env/static/private';
-import { getPocketBase } from '$lib/pocketbase';
+import { getPocketBase, validatePocketbase } from '$lib/pocketbase';
 
 // Suno API endpoint for music generation
 // Update this URL to match your Suno API endpoint
@@ -25,6 +25,98 @@ interface GenerateRequest {
 	weirdnessConstraint?: number;
 	audioWeight?: number;
 }
+
+export const POST: RequestHandler = async ({ request, locals, cookies }) => {
+
+	const token = cookies.get('token')
+	const {
+		pb,
+		valid,
+		e
+	} = await validatePocketbase(token)
+
+	if (!pb) {
+		return error(401, 'missing auth')
+	}
+	if (!valid) {
+		return error(403, 'unauthorised user')
+	}
+
+	const user_id = pb.authStore.record!.id
+
+	let body: any;
+	try {
+		body = await request.json();
+	} catch (parseError) {
+		return json(
+			{ error: 'Invalid JSON in request body' },
+			{ status: 400 }
+		);
+	}
+	body.callBackUrl = `https://radio.sercan.co.uk/api/music/callback`;
+
+	// Validate the request body
+	const validation = validateRequest(body);
+	if (!validation.valid) {
+		return json(
+			{ error: validation.error || 'Invalid request body' },
+			{ status: 400 }
+		);
+	}
+
+	// create pb record of request
+	let requestRecordId
+	try {
+		const requestRecord: any = {
+			...body,
+			user: user_id,
+			status: 'pending',
+		};
+
+		const record = await pb.collection('radio_generate_requests').create(requestRecord);
+		requestRecordId = record.id;
+		console.log('Saved generation request to PocketBase:', requestRecordId);
+	} catch (e) {
+		console.error('Error saving request to PocketBase:', e);
+		return error(500)
+	}
+
+	// Prepare headers for the Suno API request
+	const headers: HeadersInit = {
+		'Content-Type': 'application/json',
+		'Authorization': `Bearer ${API_KEY}`
+	};
+
+	// Call the Suno API
+	const response = await fetch(API_URL, {
+		method: 'POST',
+		headers,
+		body: JSON.stringify(body)
+	});
+
+	// Get the response data
+	const contentType = response.headers.get('content-type');
+	const data = await response.json();
+
+	// Update PocketBase record with response
+	if (pb && requestRecordId) {
+		try {
+			await pb.collection('radio_generate_requests').update(requestRecordId, {
+				status: response.ok ? 'submitted' : 'failed',
+				taskId: data.data?.taskId
+			});
+			console.log('Updated generation request in PocketBase:', requestRecordId);
+
+			await pb.collection('radio_rooms').update('corxga7q86bsc0s', { active_request: requestRecordId });
+		} catch (updateError) {
+			console.error('Error updating request in PocketBase:', updateError);
+			// Continue even if update fails
+		}
+	}
+
+	// Forward the response with the same status code
+	return json({ ...data, recordId: requestRecordId }, { status: response.status });
+};
 
 function validateRequest(body: any): { valid: boolean; error?: string } {
 	// Required fields
@@ -139,130 +231,5 @@ function validateRequest(body: any): { valid: boolean; error?: string } {
 	return { valid: true };
 }
 
-export const POST: RequestHandler = async ({ request }) => {	
-	try {
-		// Check if API key is configured
-		if (!API_KEY) {
-			return json(
-				{ error: 'API key is not configured on the server' },
-				{ status: 500 }
-			);
-		}
 
-		// Check if base URL is configured
-		if (!BASE_URL) {
-			return json(
-				{ error: 'BASE_URL is not configured on the server' },
-				{ status: 500 }
-			);
-		}
-
-		// Get and parse the request body
-		let body: any;
-		try {
-			body = await request.json();
-		} catch (parseError) {
-			return json(
-				{ error: 'Invalid JSON in request body' },
-				{ status: 400 }
-			);
-		}
-
-		// Automatically set callback URL from environment variable
-		body.callBackUrl = `https://radio.sercan.co.uk/api/music/callback`;
-
-		// Validate the request body
-		const validation = validateRequest(body);
-		if (!validation.valid) {
-			return json(
-				{ error: validation.error || 'Invalid request body' },
-				{ status: 400 }
-			);
-		}
-
-		// Initialize PocketBase
-		let pb;
-		let requestRecordId: string | null = null;
-		try {
-			pb = await getPocketBase();
-		} catch (pbError) {
-			console.error('PocketBase initialization error:', pbError);
-			// Continue without PocketBase if not configured
-		}
-
-		// Save request to PocketBase before sending to API
-		if (pb) {
-			try {
-				const requestRecord = {
-					...body,
-					status: 'pending',
-					created_at: new Date().toISOString()
-				};
-
-				const record = await pb.collection('radio_generate_requests').create(requestRecord);
-				requestRecordId = record.id;
-				console.log('Saved generation request to PocketBase:', requestRecordId);
-			} catch (dbError) {
-				console.error('Error saving request to PocketBase:', dbError);
-				// Continue even if database save fails
-			}
-		}
-
-		// Prepare headers for the Suno API request
-		const headers: HeadersInit = {
-			'Content-Type': 'application/json',
-			'Authorization': `Bearer ${API_KEY}`
-		};
-
-		// Call the Suno API
-		const response = await fetch(API_URL, {
-			method: 'POST',
-			headers,
-			body: JSON.stringify(body)
-		});
-
-		// Get the response data
-		const contentType = response.headers.get('content-type');
-		let data: any;
-
-		if (contentType?.includes('application/json')) {
-			data = await response.json();	
-		} else {
-			const text = await response.text();
-			// If response is not JSON, return it as text
-			return new Response(text, {
-				status: response.status,
-				headers: {
-					'Content-Type': contentType || 'text/plain'
-				}
-			});
-		}
-
-		// Update PocketBase record with response
-		if (pb && requestRecordId) {
-			try {
-				await pb.collection('radio_generate_requests').update(requestRecordId, {
-					status: response.ok ? 'submitted' : 'failed',
-					taskId: data.data?.taskId 
-				});
-				console.log('Updated generation request in PocketBase:', requestRecordId);
-
-				await pb.collection('radio_rooms').update('corxga7q86bsc0s', { active_request: requestRecordId });
-			} catch (updateError) {
-				console.error('Error updating request in PocketBase:', updateError);
-				// Continue even if update fails
-			}
-		}
-
-		// Forward the response with the same status code
-		return json({...data, recordId: requestRecordId}, { status: response.status });
-	} catch (error) {
-		console.error('Suno API proxy error:', error);
-
-		return json(
-			{ error: 'Failed to communicate with Suno API' },
-			{ status: 500 }
-		);
-	}
-};
 

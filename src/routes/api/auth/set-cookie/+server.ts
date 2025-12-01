@@ -10,12 +10,12 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		}
 
 		// Parse the cookie string to extract the token
-		// stoken cookie format: stoken=token; path=/; ...
-		const tokenMatch = cookie.match(/stoken=([^;]+)/);
+		// token cookie format: token=token; path=/; ...
+		const tokenMatch = cookie.match(/token=([^;]+)/);
 		if (tokenMatch) {
 			// Extract just the token value
 			const token = tokenMatch[1];
-			cookies.set('stoken', token, {
+			cookies.set('token', token, {
 				path: '/',
 				maxAge: 60 * 60 * 24 * 7, // 7 days
 				sameSite: 'lax',
@@ -28,8 +28,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			const parts = cookie.split(';');
 			for (const part of parts) {
 				const [key, value] = part.trim().split('=');
-				if (key === 'stoken' && value) {
-					cookies.set('stoken', value, {
+				if (key === 'token' && value) {
+					cookies.set('token', value, {
 						path: '/',
 						maxAge: 60 * 60 * 24 * 7,
 						sameSite: 'lax',
