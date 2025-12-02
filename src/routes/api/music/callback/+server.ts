@@ -170,6 +170,15 @@ export const POST: RequestHandler = async ({ request }) => {
                                     })
                                 }
 
+                                if (!trackRecord.generation_prompt) {
+                                    const generation_prompt = await pb.collection('radio_generate_requests').getFirstListItem(`taskId = "${task_id}"`)
+                                    if (generation_prompt.prompt) {
+                                        await pb.collection('radio_music_tracks').update(trackRecord.id, {
+                                            generation_prompt: generation_prompt.prompt
+                                        })
+                                    }
+                                }
+
                                 // link to user
                                 if (!trackRecord.user) {
                                     const requestRecord = await pb.collection('radio_generate_requests').getFirstListItem(`taskId = "${task_id}"`)
