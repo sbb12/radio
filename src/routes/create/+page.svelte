@@ -194,14 +194,14 @@
 <div
 	class="flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4 py-6 sm:px-6 lg:h-full lg:overflow-hidden lg:px-8"
 >
-	<div class="mx-auto flex w-full max-w-7xl flex-col lg:h-full">
+	<div class="max-w-9xl mx-auto flex w-full flex-col lg:h-full">
 		<!-- Header -->
 		<div class="mb-8 flex-none text-center">
 			<h1 class="mb-2 text-4xl font-bold text-white">Create Music</h1>
 			<p class="text-gray-300">Generate new songs with AI</p>
 		</div>
 
-		<div class="flex flex-col gap-8 lg:grid lg:h-full lg:min-h-0 lg:grid-cols-2 lg:overflow-hidden">
+		<div class="flex flex-col gap-8 lg:grid lg:h-full lg:min-h-0 lg:grid-cols-3 lg:overflow-hidden">
 			<!-- Left Column: Create Form -->
 			<div class="custom-scrollbar pb-32 lg:h-full lg:overflow-y-auto">
 				<div class="card">
@@ -418,10 +418,10 @@
 				</div>
 			</div>
 
-			<!-- Right Column: My Songs -->
+			<!-- Middle Column: My Songs -->
 			<div class="flex flex-col lg:h-full lg:overflow-hidden">
 				<h2 class="mb-6 flex-none text-2xl font-bold text-white">My Songs</h2>
-				{#if tracks.length === 0}
+				{#if tracks.length === 0 && !generatingPlaceholder}
 					<div class="rounded-lg border border-white/10 bg-white/5 p-8 text-center">
 						<div class="mb-4 flex justify-center">
 							<div class="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
@@ -611,6 +611,72 @@
 								<audio src={track.audio_url} preload="none" class="hidden"></audio>
 							</div>
 						{/each}
+					</div>
+				{/if}
+			</div>
+
+			<!-- Right Column: Song Info -->
+			<div class="flex flex-col lg:h-full lg:overflow-hidden lg:border-l lg:border-white/5 lg:pl-8">
+				<h2 class="mb-6 flex-none text-2xl font-bold text-white">Song Info</h2>
+				{#if $currentTrack}
+					<div class="custom-scrollbar flex-1 overflow-y-auto pb-32">
+						<div class="space-y-6">
+							<!-- Large Image -->
+							<div class="aspect-square w-full overflow-hidden rounded-xl bg-gray-800 shadow-2xl">
+								{#if $currentTrack.image_url}
+									<img
+										src={$currentTrack.image_url}
+										alt={$currentTrack.title}
+										class="h-full w-full object-cover"
+									/>
+								{:else}
+									<div class="flex h-full w-full items-center justify-center">
+										<i class="ri-music-fill text-6xl text-gray-600"></i>
+									</div>
+								{/if}
+							</div>
+
+							<!-- Title & Model -->
+							<div>
+								<h3 class="text-2xl font-bold text-white">{$currentTrack.title}</h3>
+								<div class="mt-2 flex flex-wrap gap-2">
+									<span class="rounded bg-purple-500/20 px-2 py-1 text-xs text-purple-300">
+										{$currentTrack.model_name || 'Unknown Model'}
+									</span>
+									{#if $currentTrack.tags}
+										<span class="rounded bg-white/10 px-2 py-1 text-xs text-gray-400">
+											{$currentTrack.tags}
+										</span>
+									{/if}
+								</div>
+							</div>
+
+							<!-- Prompt / Lyrics -->
+							{#if $currentTrack.prompt}
+								<div class="rounded-xl bg-white/5 p-4">
+									<h4 class="mb-2 text-sm font-medium text-gray-400">Prompt / Lyrics</h4>
+									<p class="text-sm leading-relaxed whitespace-pre-wrap text-gray-200">
+										{$currentTrack.prompt}
+									</p>
+								</div>
+							{/if}
+
+							<!-- Download Button -->
+							<button
+								class="flex w-full items-center justify-center gap-2 rounded-lg bg-white/10 py-3 font-medium text-white transition-colors hover:bg-white/20"
+								onclick={() => downloadTrack($currentTrack)}
+							>
+								<i class="ri-download-line"></i>
+								Download MP3
+							</button>
+						</div>
+					</div>
+				{:else}
+					<div class="flex flex-1 flex-col items-center justify-center text-center text-gray-500">
+						<div class="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white/5">
+							<i class="ri-disc-line text-3xl"></i>
+						</div>
+						<p>Select a song to view details</p>
 					</div>
 				{/if}
 			</div>

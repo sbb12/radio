@@ -102,6 +102,16 @@ export const POST: RequestHandler = async ({ request }) => {
                     if (musicData && Array.isArray(musicData)) {
                         console.log(`Extracting ${musicData.length} music track(s) for upload:`);
 
+                        // Fetch request record to get prompt and user
+                        let requestRecord: any = null;
+                        try {
+                            requestRecord = await pb
+                                .collection('radio_generate_requests')
+                                .getFirstListItem(`taskId = "${task_id}"`);
+                        } catch (e) {
+                            console.log('Request record not found for task:', task_id);
+                        }
+
                         for (const music of musicData) {
                             try {
                                 // Map the music track data to PocketBase collection format
@@ -109,7 +119,7 @@ export const POST: RequestHandler = async ({ request }) => {
                                     track_id: music.id,
                                     task_id: task_id,
                                     title: music.title,
-                                    prompt: music.prompt,
+                                    prompt: music.prompt || requestRecord?.prompt || '',
                                     model_name: music.model_name,
                                     tags: music.tags,
                                     duration: music.duration,
@@ -120,7 +130,8 @@ export const POST: RequestHandler = async ({ request }) => {
                                     image_url: music.image_url,
                                     source_image_url: music.source_image_url,
                                     create_time: music.createTime,
-                                    callback_type: callbackType
+                                    callback_type: callbackType,
+                                    user: requestRecord?.user
                                 };
 
                                 // Check if track already exists by track_id
@@ -144,7 +155,7 @@ export const POST: RequestHandler = async ({ request }) => {
                                 }
 
                                 // save the audio file
-                                if (trackRecord.audio_url && !trackRecord.audo) {                                    
+                                if (trackRecord.audio_url && !trackRecord.audo) {
                                     const file = await urlToFile(trackRecord.audio_url, trackRecord.title)
                                     await pb.collection('radio_music_tracks').update(trackRecord.id, {
                                         audio: file
@@ -160,9 +171,9 @@ export const POST: RequestHandler = async ({ request }) => {
                                 }
 
                                 // link to user
-                                if (!trackRecord.user){
+                                if (!trackRecord.user) {
                                     const requestRecord = await pb.collection('radio_generate_requests').getFirstListItem(`taskId = "${task_id}"`)
-                                    if (requestRecord.user){
+                                    if (requestRecord.user) {
                                         await pb.collection('radio_music_tracks').update(trackRecord.id, {
                                             user: requestRecord.user
                                         })

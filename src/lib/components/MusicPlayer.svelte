@@ -4,12 +4,14 @@
 	import PocketBase from 'pocketbase';
 	import { onMount, onDestroy } from 'svelte';
 
-	let audio: HTMLAudioElement;
+	let audio = $state<HTMLAudioElement>();
 	let pb: PocketBase;
 	let unsubscribe: () => void;
 	let progress = $state(0);
 	let duration = $state(0);
 	let currentTime = $state(0);
+	let volume = $state(1);
+	let muted = $state(false);
 
 	// Subscribe to store changes
 	let track = $state($currentTrack);
@@ -62,11 +64,13 @@
 	}
 
 	function handleTimeUpdate() {
+		if (!audio) return;
 		currentTime = audio.currentTime;
 		progress = (audio.currentTime / (duration || audio.duration)) * 100;
 	}
 
 	function handleLoadedMetadata() {
+		if (!audio) return;
 		duration = audio.duration;
 		if (playing) {
 			audio.play().catch(() => isPlaying.set(false));
@@ -90,6 +94,7 @@
 	}
 
 	function handleSeek(e: MouseEvent) {
+		if (!audio) return;
 		const progressBar = e.currentTarget as HTMLDivElement;
 		const rect = progressBar.getBoundingClientRect();
 		const x = e.clientX - rect.left;
@@ -108,6 +113,22 @@
 			link.rel = 'external';
 			link.click();
 		}
+	}
+
+	function toggleMute() {
+		if (muted && volume === 0) {
+			volume = 0.5;
+			muted = false;
+		} else {
+			muted = !muted;
+		}
+	}
+
+	function handleVolumeChange(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		volume = +input.value;
+		if (volume > 0 && muted) muted = false;
+		if (volume === 0) muted = true;
 	}
 
 	onMount(async () => {
@@ -139,7 +160,7 @@
 						// If we now have audio_url and duration, update the track
 						if (updatedTrack.audio_url && updatedTrack.duration) {
 							// Save current time to restore after reload
-							const savedTime = audio.currentTime;
+							const savedTime = audio?.currentTime || 0;
 							duration = updatedTrack.duration;
 						}
 					}
@@ -182,12 +203,14 @@
 					<button
 						class="cursor-pointer text-gray-400 transition-colors hover:text-white"
 						onclick={playPrevious}
+						aria-label="Previous Track"
 					>
 						<i class="ri-skip-back-fill text-xl"></i>
 					</button>
 					<button
 						onclick={togglePlay}
 						class="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-white text-purple-900 shadow-lg transition-transform hover:scale-105"
+						aria-label={playing ? 'Pause' : 'Play'}
 					>
 						{#if playing}
 							<i class="ri-pause-fill text-xl"></i>
@@ -198,6 +221,7 @@
 					<button
 						class="cursor-pointer text-gray-400 transition-colors hover:text-white"
 						onclick={playNext}
+						aria-label="Next Track"
 					>
 						<i class="ri-skip-forward-fill text-xl"></i>
 					</button>
@@ -211,6 +235,17 @@
 					<div
 						class="group relative h-1 flex-1 cursor-pointer rounded-full bg-white/10"
 						onclick={handleSeek}
+						role="slider"
+						aria-label="Seek"
+						aria-valuenow={progress}
+						aria-valuemin="0"
+						aria-valuemax="100"
+						tabindex="0"
+						onkeydown={(e) => {
+							if (!audio) return;
+							if (e.key === 'ArrowRight') audio.currentTime += 5;
+							if (e.key === 'ArrowLeft') audio.currentTime -= 5;
+						}}
 					>
 						<div
 							class="absolute h-full rounded-full bg-gradient-to-r from-purple-500 to-pink-500"
@@ -231,16 +266,52 @@
 			</div>
 
 			<!-- Volume / Actions -->
-			<div class="flex w-1/4 items-center justify-end gap-4">
+			<div class="flex w-1/4 items-center justify-end gap-3">
+				<div class="flex items-center gap-2">
+					<button
+						onclick={toggleMute}
+						class="flex w-8 cursor-pointer justify-center text-gray-400 transition-colors hover:text-white"
+						aria-label={muted ? 'Unmute' : 'Mute'}
+					>
+						{#if muted || volume === 0}
+							<i class="ri-volume-mute-line text-lg"></i>
+						{:else if volume < 0.5}
+							<i class="ri-volume-down-line text-lg"></i>
+						{:else}
+							<i class="ri-volume-up-line text-lg"></i>
+						{/if}
+					</button>
+
+					<div class="group relative flex h-1 w-24 items-center rounded-full bg-white/10">
+						<div
+							class="absolute h-full rounded-full bg-white transition-all group-hover:bg-purple-400"
+							style="width: {volume * 100}%"
+						></div>
+						<input
+							type="range"
+							min="0"
+							max="1"
+							step="0.01"
+							value={volume}
+							oninput={handleVolumeChange}
+							class="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+						/>
+					</div>
+				</div>
+
+				<div class="mx-2 h-4 w-px bg-white/10"></div>
+
 				<button
 					onclick={handleDownload}
 					class="cursor-pointer text-gray-400 transition-colors hover:text-white"
+					title="Download"
 				>
 					<i class="ri-download-line text-lg"></i>
 				</button>
 				<button
 					onclick={closePlayer}
 					class="cursor-pointer text-gray-400 transition-colors hover:text-red-400"
+					title="Close"
 				>
 					<i class="ri-close-line text-xl"></i>
 				</button>
@@ -249,6 +320,8 @@
 
 		<audio
 			bind:this={audio}
+			bind:volume
+			bind:muted
 			src={track.audio_url || track.stream_audio_url}
 			ontimeupdate={handleTimeUpdate}
 			onloadedmetadata={handleLoadedMetadata}
