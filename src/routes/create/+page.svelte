@@ -178,6 +178,17 @@
 		isPlaying.set(true);
 		queue.set(tracks);
 	}
+
+	function downloadTrack(track: any) {
+		if (track) {
+			const url = pb.files.getURL(track, track.audio);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = track.title + '.mp3';
+			link.rel = 'external';
+			link.click();
+		}
+	}
 </script>
 
 <div
@@ -581,21 +592,22 @@
 												>
 													<i class="ri-share-forward-line"></i>
 												</button>
-												<a
-													href={track.audio_url}
-													download
+												<button
 													class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-white"
 													title="Download"
-													onclick={(e) => e.stopPropagation()}
+													onclick={(e) => {
+														e.stopPropagation();
+														downloadTrack(track);
+													}}
 												>
 													<i class="ri-download-line"></i>
-												</a>
+												</button>
 											</div>
 										</div>
 									</div>
 								</div>
 
-								<!-- Audio Player (Hidden by default, could be expanded) -->
+								<!-- Audio Player (Hidden by default, could be expanded)-->
 								<audio src={track.audio_url} preload="none" class="hidden"></audio>
 							</div>
 						{/each}

@@ -105,6 +105,7 @@
 			const link = document.createElement('a');
 			link.href = url;
 			link.download = track.title + '.mp3';
+			link.rel = 'external';
 			link.click();
 		}
 	}
@@ -233,7 +234,7 @@
 			<div class="flex w-1/4 items-center justify-end gap-4">
 				<button
 					onclick={handleDownload}
-					class="hidden text-gray-400 transition-colors hover:text-white"
+					class="cursor-pointer text-gray-400 transition-colors hover:text-white"
 				>
 					<i class="ri-download-line text-lg"></i>
 				</button>

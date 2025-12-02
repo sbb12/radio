@@ -32,6 +32,4 @@ export async function validatePocketbase(token: string | undefined) {
 			e: e
 		}
 	}
-
-
 }
