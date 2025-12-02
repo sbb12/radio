@@ -19,20 +19,7 @@ export const load: PageServerLoad = async ({ locals }) => {
             sort: '-created'
         });
 
-        tracks = trackRecords.items.map((track) => ({
-            id: track.id,
-            track_id: track.track_id || track.id,
-            title: track.title || 'Untitled',
-            audio_url: track.audio_url,
-            stream_audio_url: track.stream_audio_url,
-            image_url: track.image_url,
-            duration: track.duration,
-            tags: track.tags,
-            prompt: track.prompt,
-            model_name: track.model_name,
-            create_time: track.create_time,
-            status: track.status || 'complete'
-        }));
+        tracks = trackRecords.items
 
         // Fetch playlists (Placeholder for now, assuming collection might not exist or empty)
         // const playlistRecords = await pb.collection('playlists').getList(1, 50, {

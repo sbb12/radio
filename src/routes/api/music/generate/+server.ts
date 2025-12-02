@@ -107,7 +107,6 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			});
 			console.log('Updated generation request in PocketBase:', requestRecordId);
 
-			await pb.collection('radio_rooms').update('corxga7q86bsc0s', { active_request: requestRecordId });
 		} catch (updateError) {
 			console.error('Error updating request in PocketBase:', updateError);
 			// Continue even if update fails

@@ -63,18 +63,8 @@ export const GET: RequestHandler = async ({ locals, cookies, url }) => {
 
 		// Format tracks
 		const formattedTracks = tracks.map((track) => ({
-			id: track.id,
-			track_id: track.track_id || track.id,
+			...track,
 			title: track.title || 'Untitled',
-			audio_url: track.audio_url,
-			stream_audio_url: track.stream_audio_url,
-			image_url: track.image_url,
-			duration: track.duration,
-			tags: track.tags,
-			prompt: track.prompt,
-			model_name: track.model_name,
-			create_time: track.create_time,
-			created: track.created
 		}));
 
 		// Sort by created date (most recent first)

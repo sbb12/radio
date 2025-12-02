@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import 'remixicon/fonts/remixicon.css';
-	import { currentTrack, isPlaying } from '$lib/stores';
+	import { currentTrack, isPlaying, queue } from '$lib/stores';
+	import { getPocketBase } from '$lib/pocketbase';
+	import type PocketBase from 'pocketbase';
+	import { onMount, onDestroy } from 'svelte';
 
 	let { data } = $props();
 	let user = $state(data.user);
@@ -24,9 +27,58 @@
 	let isGenerating = $state(false);
 	let error = $state<string | null>(null);
 	let success = $state<string | null>(null);
+	let generatingPlaceholder = $state<any>(null);
 
 	// Available models
 	const models = ['V3_5', 'V4', 'V4_5', 'V4_5PLUS', 'V5'];
+	let pb: PocketBase;
+
+	onMount(async () => {
+		pb = await getPocketBase();
+
+		// Load prompt from localStorage
+		const savedPrompt = localStorage.getItem('create_prompt');
+		if (savedPrompt) {
+			prompt = savedPrompt;
+		}
+
+		// Subscribe to tracks collection
+		pb.collection('radio_music_tracks').subscribe('*', function (e) {
+			if (e.action === 'create') {
+				// Add new track to the top of the list
+				const newTrack = {
+					...e.record,
+					title: e.record.title || 'Untitled'
+				};
+				tracks = [newTrack, ...tracks];
+				// Remove placeholder if it exists
+				generatingPlaceholder = null;
+			} else if (e.action === 'update') {
+				// Update existing track
+				tracks = tracks.map((t) => {
+					if (t.id === e.record.id) {
+						return {
+							...e.record,
+							title: e.record.title || 'Untitled'
+						};
+					}
+					return t;
+				});
+			}
+		});
+	});
+
+	$effect(() => {
+		if (prompt) {
+			localStorage.setItem('create_prompt', prompt);
+		}
+	});
+
+	onDestroy(() => {
+		if (pb) {
+			pb.collection('radio_music_tracks').unsubscribe();
+		}
+	});
 
 	async function handleGenerate(event: SubmitEvent) {
 		event.preventDefault();
@@ -88,7 +140,18 @@
 				return;
 			}
 
-			success = 'Song generation started! It may take a few minutes. Check back soon.';
+			success = 'Song generation started! It will take a moment';
+
+			// Set placeholder
+			generatingPlaceholder = {
+				id: 'generating',
+				title: customMode ? title : prompt.slice(0, 30) + '...',
+				model_name: model,
+				tags: customMode ? style : 'Generating...',
+				image_url: null,
+				status: 'generating'
+			};
+
 			// Reset form
 			prompt = '';
 			style = '';
@@ -98,6 +161,10 @@
 			weirdnessConstraint = undefined;
 			audioWeight = undefined;
 			negativeTags = '';
+
+			setTimeout(() => {
+				success = null;
+			}, 10000);
 		} catch (err: any) {
 			console.error('Generation error:', err);
 			error = err.message || 'Failed to generate song';
@@ -109,6 +176,7 @@
 	function playTrack(track: any) {
 		currentTrack.set(track);
 		isPlaying.set(true);
+		queue.set(tracks);
 	}
 </script>
 
@@ -139,11 +207,6 @@
 					{#if success}
 						<div class="mb-6 rounded-lg border border-green-500/50 bg-green-500/20 p-4">
 							<p class="text-sm text-green-200">{success}</p>
-							<div class="mt-2">
-								<a href="/me" class="text-sm font-medium text-green-200 underline hover:text-white"
-									>View My Songs</a
-								>
-							</div>
 						</div>
 					{/if}
 
@@ -359,11 +422,48 @@
 					</div>
 				{:else}
 					<div class="custom-scrollbar flex-1 space-y-2 overflow-y-auto pb-32">
+						{#if generatingPlaceholder}
+							<div
+								class="group relative animate-pulse overflow-hidden rounded-xl border border-purple-500/30 bg-white/5 p-1"
+							>
+								<div class="flex gap-4">
+									<!-- Image Placeholder -->
+									<div
+										class="relative flex h-24 w-24 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-800"
+									>
+										<i class="ri-loader-4-line animate-spin text-3xl text-purple-500"></i>
+									</div>
+
+									<!-- Content -->
+									<div class="flex min-w-0 flex-1 flex-col justify-between gap-1 py-1">
+										<div>
+											<h3 class="truncate text-lg font-bold text-white">
+												{generatingPlaceholder.title}
+												<span
+													class="rounded bg-purple-500/20 px-1.5 py-0.5 text-[10px] text-purple-300"
+													>Generating</span
+												>
+											</h3>
+										</div>
+
+										<div class="flex items-center gap-2">
+											<p class="line-clamp-1 text-sm text-gray-400">
+												{generatingPlaceholder.tags}
+											</p>
+										</div>
+									</div>
+								</div>
+							</div>
+						{/if}
+
 						{#each tracks as track}
 							<!-- svelte-ignore a11y_click_events_have_key_events -->
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
-								class="group relative overflow-hidden rounded-xl p-1 transition-all hover:bg-white/10"
+								class="group relative overflow-hidden rounded-xl p-1 transition-all hover:bg-white/10 {track.id ===
+								$currentTrack?.id
+									? 'bg-white/10'
+									: ''}"
 							>
 								<div class="flex gap-4">
 									<!-- Image -->
@@ -394,6 +494,26 @@
 												<i class="ri-play-fill ml-0.5 text-xl"></i>
 											</button>
 										</div>
+
+										<!-- Visualizer Overlay -->
+										{#if track.id === $currentTrack?.id && $isPlaying}
+											<div
+												class="absolute inset-0 flex items-center justify-center gap-1 bg-black/60"
+											>
+												<div
+													class="h-3 w-1 animate-[music-bar_1s_ease-in-out_infinite] rounded-full bg-purple-500"
+												></div>
+												<div
+													class="h-5 w-1 animate-[music-bar_1.2s_ease-in-out_infinite] rounded-full bg-purple-500"
+												></div>
+												<div
+													class="h-4 w-1 animate-[music-bar_0.8s_ease-in-out_infinite] rounded-full bg-purple-500"
+												></div>
+												<div
+													class="h-3 w-1 animate-[music-bar_1.1s_ease-in-out_infinite] rounded-full bg-purple-500"
+												></div>
+											</div>
+										{/if}
 									</div>
 
 									<!-- Content -->
@@ -488,4 +608,14 @@
 
 <style lang="postcss">
 	@reference "$lib/../app.css";
+
+	@keyframes music-bar {
+		0%,
+		100% {
+			height: 0.5rem;
+		}
+		50% {
+			height: 1.5rem;
+		}
+	}
 </style>
