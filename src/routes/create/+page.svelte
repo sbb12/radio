@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { enhance } from '$app/forms';
 	import 'remixicon/fonts/remixicon.css';
 	import { currentTrack, isPlaying, queue } from '$lib/stores';
 	import { getPocketBase } from '$lib/pocketbase';
@@ -145,9 +146,9 @@
 			// Set placeholder
 			generatingPlaceholder = {
 				id: 'generating',
-				title: customMode ? title : prompt.slice(0, 30) + '...',
+				title: customMode ? title : 'Untitled',
 				model_name: model,
-				tags: customMode ? style : 'Generating...',
+				tags: customMode ? style : prompt,
 				image_url: null,
 				status: 'generating'
 			};
@@ -450,10 +451,6 @@
 										<div>
 											<h3 class="truncate text-lg font-bold text-white">
 												{generatingPlaceholder.title}
-												<span
-													class="rounded bg-purple-500/20 px-1.5 py-0.5 text-[10px] text-purple-300"
-													>Generating</span
-												>
 											</h3>
 										</div>
 
@@ -461,6 +458,13 @@
 											<p class="line-clamp-1 text-sm text-gray-400">
 												{generatingPlaceholder.tags}
 											</p>
+										</div>
+
+										<div>
+											<span
+												class="rounded bg-purple-500/20 px-1.5 py-0.5 text-[10px] text-purple-300"
+												>Generating</span
+											>
 										</div>
 									</div>
 								</div>
@@ -550,8 +554,8 @@
 											{/if}
 										</div>
 
-										<div class="flex items-center justify-between">
-											<div class="flex gap-2">
+										<div class="flex w-full items-center justify-between">
+											<div class="flex w-full gap-2">
 												<button
 													class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-green-400"
 													title="Like"
@@ -602,6 +606,32 @@
 												>
 													<i class="ri-download-line"></i>
 												</button>
+												<form
+													action="?/delete"
+													method="POST"
+													use:enhance={() => {
+														return async ({ result }) => {
+															if (result.type === 'success') {
+																tracks = tracks.filter((t) => t.id !== track.id);
+																if ($currentTrack?.id === track.id) {
+																	currentTrack.set(null);
+																	isPlaying.set(false);
+																}
+															}
+														};
+													}}
+													class="mr-2 ml-auto inline-block"
+												>
+													<input type="hidden" name="id" value={track.id} />
+													<button
+														type="submit"
+														class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-red-400"
+														title="Delete"
+														onclick={(e) => e.stopPropagation()}
+													>
+														<i class="ri-delete-bin-line"></i>
+													</button>
+												</form>
 											</div>
 										</div>
 									</div>
@@ -619,15 +649,15 @@
 			<div class="flex flex-col lg:h-full lg:overflow-hidden lg:border-l lg:border-white/5 lg:pl-8">
 				<h2 class="mb-6 flex-none text-2xl font-bold text-white">Song Info</h2>
 				{#if $currentTrack}
-					<div class="custom-scrollbar flex-1 overflow-y-auto pb-32">
+					<div class="custom-scrollbar flex-1 overflow-y-auto pr-4 pb-32">
 						<div class="space-y-6">
 							<!-- Large Image -->
-							<div class="aspect-square w-full overflow-hidden rounded-xl bg-gray-800 shadow-2xl">
+							<div class="mx-auto w-fit overflow-hidden rounded-xl bg-gray-800 shadow-2xl">
 								{#if $currentTrack.image_url}
 									<img
 										src={$currentTrack.image_url}
 										alt={$currentTrack.title}
-										class="h-full w-full object-cover"
+										class="max-w-60 object-cover"
 									/>
 								{:else}
 									<div class="flex h-full w-full items-center justify-center">
@@ -650,6 +680,16 @@
 									{/if}
 								</div>
 							</div>
+
+							<!-- Generation prompt -->
+							{#if $currentTrack.generation_prompt}
+								<div class="rounded-xl bg-white/5 p-4">
+									<h4 class="mb-2 text-sm font-medium text-gray-400">Generation Prompt</h4>
+									<p class="text-sm leading-relaxed whitespace-pre-wrap text-gray-200">
+										{$currentTrack.generation_prompt}
+									</p>
+								</div>
+							{/if}
 
 							<!-- Prompt / Lyrics -->
 							{#if $currentTrack.prompt}

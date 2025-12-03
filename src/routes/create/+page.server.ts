@@ -1,4 +1,4 @@
-import { redirect } from '@sveltejs/kit';
+import { redirect, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getPocketBase } from '$lib/pocketbase';
 
@@ -8,24 +8,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 
     try {
         const records = await pb.collection('radio_music_tracks').getList(1, 50, {
-            filter: `user = "${locals.user.id}"`,
+            filter: `user = "${locals.user.id}" && deleted != true`,
             sort: '-created'
         });
 
-        tracks = records.items.map((track) => ({
-            id: track.id,
-            track_id: track.track_id || track.id,
-            title: track.title || 'Untitled',
-            audio_url: track.audio_url,
-            stream_audio_url: track.stream_audio_url,
-            image_url: track.image_url,
-            duration: track.duration,
-            tags: track.tags,
-            prompt: track.prompt,
-            model_name: track.model_name,
-            create_time: track.create_time,
-            status: track.status || 'complete' // Assuming complete if not specified
-        }));
+        tracks = records.items;
     } catch (e) {
         console.error('Error fetching user tracks:', e);
     }
@@ -34,4 +21,22 @@ export const load: PageServerLoad = async ({ locals }) => {
         user: locals.user,
         tracks
     };
+};
+
+export const actions: Actions = {
+    delete: async ({ request, locals }) => {
+        const data = await request.formData();
+        const id = data.get('id') as string;
+        const pb = await getPocketBase();
+
+        try {
+            await pb.collection('radio_music_tracks').update(id, {
+                deleted: true
+            });
+            return { success: true };
+        } catch (e) {
+            console.error('Error deleting track:', e);
+            return { success: false, error: e };
+        }
+    }
 };
