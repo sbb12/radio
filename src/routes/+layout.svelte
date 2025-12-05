@@ -4,6 +4,8 @@
 	import Navigation from '$lib/components/Navigation.svelte';
 	import MusicPlayer from '$lib/components/MusicPlayer.svelte';
 
+	import Toast from '$lib/components/Toast.svelte';
+
 	let { children, data } = $props();
 </script>
 
@@ -13,6 +15,7 @@
 
 <div class="flex h-screen flex-col overflow-hidden bg-slate-900">
 	<Navigation user={data.user} />
+	<Toast />
 
 	<main class="relative flex-1 overflow-y-auto">
 		{@render children()}

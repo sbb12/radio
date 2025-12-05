@@ -1,5 +1,12 @@
 <script lang="ts">
 	import { currentTrack, isPlaying, queue } from '$lib/stores';
+	import {
+		userReactions,
+		toggleReaction,
+		addToPlaylist,
+		fetchReaction
+	} from '$lib/stores/trackActions';
+	import { toasts } from '$lib/stores/toast';
 	import { getPocketBase } from '$lib/pocketbase';
 	import PocketBase from 'pocketbase';
 	import { onMount, onDestroy } from 'svelte';
@@ -171,9 +178,170 @@
 			console.log('listening for updates');
 		}
 	});
+	let showQueue = $state(false);
+	let showPlaylistModal = $state(false);
+	let playlists = $state<any[]>([]);
+
+	$effect(() => {
+		if (track) {
+			fetchReaction(track.id);
+		}
+	});
+
+	async function fetchPlaylists() {
+		if (pb.authStore.isValid) {
+			try {
+				const records = await pb.collection('radio_playlists').getFullList({
+					sort: '-created',
+					filter: `user = "${pb.authStore.model?.id}"`
+				});
+				playlists = records;
+			} catch (e) {
+				console.error('Error fetching playlists:', e);
+			}
+		}
+	}
+
+	async function handleAddToPlaylist(playlistId: string) {
+		if (!track) return;
+		const success = await addToPlaylist(playlistId, track.id);
+		if (success) {
+			showPlaylistModal = false;
+		}
+	}
+
+	function toggleQueue() {
+		showQueue = !showQueue;
+	}
+
+	function playQueueTrack(t: any) {
+		currentTrack.set(t);
+		isPlaying.set(true);
+	}
+
+	function removeFromQueue(t: any) {
+		const newQueue = trackQueue.filter((track) => track.id !== t.id);
+		queue.set(newQueue);
+	}
+
+	function shuffleQueue() {
+		const shuffled = [...trackQueue].sort(() => Math.random() - 0.5);
+		queue.set(shuffled);
+	}
+
+	onMount(async () => {
+		pb = await getPocketBase();
+		fetchPlaylists();
+	});
 </script>
 
 {#if track}
+	<!-- Playlist Modal -->
+	{#if showPlaylistModal}
+		<div
+			class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+		>
+			<div class="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
+				<div class="mb-6 flex items-center justify-between">
+					<h3 class="text-xl font-bold text-white">Add to Playlist</h3>
+					<button
+						class="text-gray-400 hover:text-white"
+						onclick={() => (showPlaylistModal = false)}
+					>
+						<i class="ri-close-line text-2xl"></i>
+					</button>
+				</div>
+
+				<div class="custom-scrollbar max-h-[60vh] space-y-2 overflow-y-auto">
+					{#each playlists as playlist}
+						<button
+							class="flex w-full items-center gap-4 rounded-xl bg-white/5 p-3 text-left transition-colors hover:bg-white/10"
+							onclick={() => handleAddToPlaylist(playlist.id)}
+						>
+							<div class="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
+								{#if playlist.cover}
+									<img
+										src={playlist.cover}
+										alt={playlist.name}
+										class="h-full w-full rounded-lg object-cover"
+									/>
+								{:else}
+									<i class="ri-music-2-line text-xl text-white/20"></i>
+								{/if}
+							</div>
+							<div>
+								<h4 class="font-bold text-white">{playlist.name}</h4>
+							</div>
+						</button>
+					{/each}
+					{#if playlists.length === 0}
+						<p class="text-center text-gray-400">No playlists found.</p>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Queue Panel -->
+	{#if showQueue}
+		<div
+			class="fixed right-4 bottom-24 z-50 w-80 overflow-hidden rounded-xl border border-white/10 bg-slate-900/95 shadow-2xl backdrop-blur-lg sm:right-6"
+			style="max-height: calc(100vh - 8rem);"
+		>
+			<div class="border-b border-white/10 p-4">
+				<h3 class="font-bold text-white">Queue</h3>
+			</div>
+			<div class="custom-scrollbar max-h-[60vh] overflow-y-auto p-2">
+				{#if trackQueue.length === 0}
+					<div class="p-4 text-center text-gray-400">Queue is empty</div>
+				{:else}
+					{#each trackQueue as t}
+						<div
+							class="group flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-white/5 {t.id ===
+							track.id
+								? 'bg-white/10'
+								: ''}"
+						>
+							<div
+								class="relative h-10 w-10 flex-shrink-0 cursor-pointer overflow-hidden rounded bg-gray-800"
+								onclick={() => playQueueTrack(t)}
+							>
+								{#if t.image_url}
+									<img src={t.image_url} alt={t.title} class="h-full w-full object-cover" />
+								{:else}
+									<div class="flex h-full w-full items-center justify-center">
+										<i class="ri-music-fill text-gray-400"></i>
+									</div>
+								{/if}
+								<div
+									class="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
+								>
+									<i class="ri-play-fill text-white"></i>
+								</div>
+							</div>
+							<div class="min-w-0 flex-1">
+								<h4
+									class="truncate text-sm font-medium text-white {t.id === track.id
+										? 'text-purple-400'
+										: ''}"
+								>
+									{t.title}
+								</h4>
+								<p class="truncate text-xs text-gray-400">{t.model_name || 'Unknown'}</p>
+							</div>
+							<button
+								class="text-gray-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-400"
+								onclick={() => removeFromQueue(t)}
+							>
+								<i class="ri-close-line"></i>
+							</button>
+						</div>
+					{/each}
+				{/if}
+			</div>
+		</div>
+	{/if}
+
 	<div
 		class="fixed right-0 bottom-0 left-0 z-50 border-t border-white/10 bg-slate-900/95 px-4 py-3 shadow-2xl backdrop-blur-lg transition-transform duration-300 ease-in-out"
 	>
@@ -195,11 +363,54 @@
 					<h3 class="truncate text-sm font-bold text-white">{track.title}</h3>
 					<p class="truncate text-xs text-gray-400">{track.model_name || 'Unknown Model'}</p>
 				</div>
+				<!-- Like/Dislike/Add Buttons (Mobile hidden or small) -->
+				<div class="ml-2 flex items-center gap-1">
+					<button
+						class="transition-colors {$userReactions[track.id] === 'like'
+							? 'text-green-400'
+							: 'text-gray-400 hover:text-green-400'}"
+						title="Like"
+						onclick={() => toggleReaction(track.id, 'like')}
+					>
+						<i class={$userReactions[track.id] === 'like' ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'}
+						></i>
+					</button>
+					<button
+						class="transition-colors {$userReactions[track.id] === 'dislike'
+							? 'text-red-400'
+							: 'text-gray-400 hover:text-red-400'}"
+						title="Dislike"
+						onclick={() => toggleReaction(track.id, 'dislike')}
+					>
+						<i
+							class={$userReactions[track.id] === 'dislike'
+								? 'ri-thumb-down-fill'
+								: 'ri-thumb-down-line'}
+						></i>
+					</button>
+					<button
+						class="text-gray-400 hover:text-purple-400"
+						title="Add to Playlist"
+						onclick={() => {
+							fetchPlaylists();
+							showPlaylistModal = true;
+						}}
+					>
+						<i class="ri-play-list-add-line"></i>
+					</button>
+				</div>
 			</div>
 
 			<!-- Controls -->
 			<div class="flex flex-1 flex-col items-center gap-1">
 				<div class="flex items-center gap-4">
+					<button
+						class="cursor-pointer text-gray-400 transition-colors hover:text-white"
+						onclick={shuffleQueue}
+						title="Shuffle"
+					>
+						<i class="ri-shuffle-line text-lg"></i>
+					</button>
 					<button
 						class="cursor-pointer text-gray-400 transition-colors hover:text-white"
 						onclick={playPrevious}
@@ -300,6 +511,16 @@
 				</div>
 
 				<div class="mx-2 h-4 w-px bg-white/10"></div>
+
+				<button
+					onclick={toggleQueue}
+					class="cursor-pointer transition-colors {showQueue
+						? 'text-purple-400'
+						: 'text-gray-400 hover:text-white'}"
+					title="Queue"
+				>
+					<i class="ri-play-list-line text-lg"></i>
+				</button>
 
 				<button
 					onclick={handleDownload}

@@ -3,13 +3,20 @@
 	import { enhance } from '$app/forms';
 	import 'remixicon/fonts/remixicon.css';
 	import { currentTrack, isPlaying, queue } from '$lib/stores';
+	import { addToPlaylist } from '$lib/stores/trackActions';
 	import { getPocketBase } from '$lib/pocketbase';
 	import type PocketBase from 'pocketbase';
 	import { onMount, onDestroy } from 'svelte';
+	import { invalidateAll } from '$app/navigation';
+
+	import SongList from '$lib/components/SongList.svelte';
 
 	let { data } = $props();
-	let user = $state(data.user);
+	let user = $derived(data.user);
 	let tracks = $state(data.tracks || []);
+	let playlists = $state(data.playlists || []);
+	let showPlaylistModal = $state(false);
+	let selectedTrackForPlaylist: any = $state(null);
 
 	// Generation form state
 	let prompt = $state('');
@@ -67,6 +74,17 @@
 				});
 			}
 		});
+
+		// Subscribe to playlists collection
+		pb.collection('radio_playlists').subscribe('*', function (e) {
+			if (e.action === 'create') {
+				playlists = [e.record, ...playlists];
+			} else if (e.action === 'update') {
+				playlists = playlists.map((p) => (p.id === e.record.id ? e.record : p));
+			} else if (e.action === 'delete') {
+				playlists = playlists.filter((p) => p.id !== e.record.id);
+			}
+		});
 	});
 
 	$effect(() => {
@@ -75,9 +93,14 @@
 		}
 	});
 
+	$effect(() => {
+		playlists = data.playlists || [];
+	});
+
 	onDestroy(() => {
 		if (pb) {
 			pb.collection('radio_music_tracks').unsubscribe();
+			pb.collection('radio_playlists').unsubscribe();
 		}
 	});
 
@@ -188,6 +211,25 @@
 			link.download = track.title + '.mp3';
 			link.rel = 'external';
 			link.click();
+		}
+	}
+
+	function openPlaylistModal(track: any) {
+		selectedTrackForPlaylist = track;
+		showPlaylistModal = true;
+	}
+	function formatDuration(seconds: number): string {
+		if (!seconds || isNaN(seconds)) return '0m';
+		const mins = Math.floor(seconds / 60);
+		return `${mins}m`;
+	}
+
+	async function handleAddToPlaylist(playlistId: string) {
+		if (!selectedTrackForPlaylist) return;
+		const success = await addToPlaylist(playlistId, selectedTrackForPlaylist.id);
+		if (success) {
+			showPlaylistModal = false;
+			selectedTrackForPlaylist = null;
 		}
 	}
 </script>
@@ -471,176 +513,11 @@
 							</div>
 						{/if}
 
-						{#each tracks as track}
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<div
-								class="group relative overflow-hidden rounded-xl p-1 transition-all hover:bg-white/10 {track.id ===
-								$currentTrack?.id
-									? 'bg-white/10'
-									: ''}"
-							>
-								<div class="flex gap-4">
-									<!-- Image -->
-									<div
-										class="relative h-24 w-24 flex-shrink-0 cursor-pointer overflow-hidden rounded-lg bg-gray-800"
-										onclick={() => playTrack(track)}
-									>
-										{#if track.image_url}
-											<img
-												src={track.image_url}
-												alt={track.title}
-												class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-											/>
-										{:else}
-											<div class="flex h-full w-full items-center justify-center">
-												<i class="ri-music-fill text-3xl text-gray-600"></i>
-											</div>
-										{/if}
-
-										<!-- Play Overlay -->
-										<div
-											class="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
-										>
-											<button
-												class="flex h-10 w-10 items-center justify-center rounded-full bg-white text-purple-900 shadow-lg transition-transform hover:scale-105"
-												title="play"
-											>
-												<i class="ri-play-fill ml-0.5 text-xl"></i>
-											</button>
-										</div>
-
-										<!-- Visualizer Overlay -->
-										{#if track.id === $currentTrack?.id && $isPlaying}
-											<div
-												class="absolute inset-0 flex items-center justify-center gap-1 bg-black/60"
-											>
-												<div
-													class="h-3 w-1 animate-[music-bar_1s_ease-in-out_infinite] rounded-full bg-purple-500"
-												></div>
-												<div
-													class="h-5 w-1 animate-[music-bar_1.2s_ease-in-out_infinite] rounded-full bg-purple-500"
-												></div>
-												<div
-													class="h-4 w-1 animate-[music-bar_0.8s_ease-in-out_infinite] rounded-full bg-purple-500"
-												></div>
-												<div
-													class="h-3 w-1 animate-[music-bar_1.1s_ease-in-out_infinite] rounded-full bg-purple-500"
-												></div>
-											</div>
-										{/if}
-									</div>
-
-									<!-- Content -->
-									<div class="flex min-w-0 flex-1 flex-col justify-between gap-1 py-1">
-										<div>
-											<button
-												class="cursor-pointer truncate text-lg font-bold text-white transition-colors hover:text-purple-400"
-												title={track.title}
-												onclick={() => playTrack(track)}
-											>
-												{track.title}
-												<span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-gray-400"
-													>{track.model_name === 'chirp-crow' ? 'V5' : track.model_name}</span
-												>
-											</button>
-										</div>
-
-										<div class="flex items-center gap-2">
-											{#if track.tags}
-												<p class="line-clamp-1 text-sm text-gray-400" title={track.tags}>
-													{track.tags}
-												</p>
-											{/if}
-										</div>
-
-										<div class="flex w-full items-center justify-between">
-											<div class="flex w-full gap-2">
-												<button
-													class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-green-400"
-													title="Like"
-													onclick={(e) => {
-														e.stopPropagation();
-														// TODO: Implement like
-													}}
-												>
-													<i class="ri-thumb-up-line"></i>
-												</button>
-												<button
-													class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-red-400"
-													title="Dislike"
-													onclick={(e) => {
-														e.stopPropagation();
-														// TODO: Implement dislike
-													}}
-												>
-													<i class="ri-thumb-down-line"></i>
-												</button>
-												<button
-													class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-purple-400"
-													title="Add to Playlist"
-													onclick={(e) => {
-														e.stopPropagation();
-														// TODO: Implement add to playlist
-													}}
-												>
-													<i class="ri-play-list-add-line"></i>
-												</button>
-												<button
-													class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-blue-400"
-													title="Share"
-													onclick={(e) => {
-														e.stopPropagation();
-														// TODO: Implement share
-													}}
-												>
-													<i class="ri-share-forward-line"></i>
-												</button>
-												<button
-													class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-white"
-													title="Download"
-													onclick={(e) => {
-														e.stopPropagation();
-														downloadTrack(track);
-													}}
-												>
-													<i class="ri-download-line"></i>
-												</button>
-												<form
-													action="?/delete"
-													method="POST"
-													use:enhance={() => {
-														return async ({ result }) => {
-															if (result.type === 'success') {
-																tracks = tracks.filter((t) => t.id !== track.id);
-																if ($currentTrack?.id === track.id) {
-																	currentTrack.set(null);
-																	isPlaying.set(false);
-																}
-															}
-														};
-													}}
-													class="mr-2 ml-auto inline-block"
-												>
-													<input type="hidden" name="id" value={track.id} />
-													<button
-														type="submit"
-														class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-red-400"
-														title="Delete"
-														onclick={(e) => e.stopPropagation()}
-													>
-														<i class="ri-delete-bin-line"></i>
-													</button>
-												</form>
-											</div>
-										</div>
-									</div>
-								</div>
-
-								<!-- Audio Player (Hidden by default, could be expanded)-->
-								<audio src={track.audio_url} preload="none" class="hidden"></audio>
-							</div>
-						{/each}
+						<SongList
+							{tracks}
+							onAddToPlaylist={openPlaylistModal}
+							userReactions={data.userReactions}
+						/>
 					</div>
 				{/if}
 			</div>
@@ -723,6 +600,52 @@
 		</div>
 	</div>
 </div>
+
+{#if showPlaylistModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+		<div class="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
+			<div class="mb-6 flex items-center justify-between">
+				<h3 class="text-xl font-bold text-white">Add to Playlist</h3>
+				<button
+					class="text-gray-400 hover:text-white"
+					onclick={() => {
+						showPlaylistModal = false;
+						selectedTrackForPlaylist = null;
+					}}
+				>
+					<i class="ri-close-line text-2xl"></i>
+				</button>
+			</div>
+
+			<div class="space-y-2">
+				{#each playlists as playlist}
+					<button
+						class="flex w-full items-center gap-4 rounded-xl bg-white/5 p-3 text-left transition-colors hover:bg-white/10"
+						onclick={() => handleAddToPlaylist(playlist.id)}
+					>
+						<div class="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
+							{#if playlist.cover}
+								<img
+									src={playlist.cover}
+									alt={playlist.name}
+									class="h-full w-full rounded-lg object-cover"
+								/>
+							{:else}
+								<i class="ri-music-2-line text-xl text-white/20"></i>
+							{/if}
+						</div>
+						<div>
+							<h4 class="font-bold text-white">{playlist.name}</h4>
+							<p class="text-sm text-gray-400">
+								{playlist.count || 0} songs • {formatDuration(playlist.duration)}
+							</p>
+						</div>
+					</button>
+				{/each}
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style lang="postcss">
 	@reference "$lib/../app.css";
