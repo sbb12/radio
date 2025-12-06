@@ -22,6 +22,12 @@
 	let volume = $state(1);
 	let muted = $state(false);
 
+	let canvas = $state<HTMLCanvasElement>();
+	let audioContext: AudioContext;
+	let analyser: AnalyserNode;
+	let source: MediaElementAudioSourceNode;
+	let animationId: number;
+
 	// Subscribe to store changes
 	let track = $state($currentTrack);
 	let playing = $state($isPlaying);
@@ -52,6 +58,9 @@
 
 	function togglePlay() {
 		isPlaying.update((v) => !v);
+		if (audioContext && audioContext.state === 'suspended') {
+			audioContext.resume();
+		}
 	}
 
 	function playNext() {
@@ -140,6 +149,57 @@
 		if (volume === 0) muted = true;
 	}
 
+	function initVisualizer() {
+		if (!audio || !canvas || audioContext) return;
+		const cvs = canvas;
+
+		try {
+			const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+			audioContext = new AudioContext();
+			analyser = audioContext.createAnalyser();
+
+			source = audioContext.createMediaElementSource(audio);
+			source.connect(analyser);
+			analyser.connect(audioContext.destination);
+
+			analyser.fftSize = 128;
+			const bufferLength = analyser.frequencyBinCount;
+			const dataArray = new Uint8Array(bufferLength);
+
+			const ctx = cvs.getContext('2d');
+			if (!ctx) return;
+
+			const draw = () => {
+				animationId = requestAnimationFrame(draw);
+
+				analyser.getByteFrequencyData(dataArray);
+
+				ctx.clearRect(0, 0, cvs.width, cvs.height);
+
+				const barWidth = (cvs.width / bufferLength) * 2.5;
+				let barHeight;
+				let x = 0;
+
+				for (let i = 0; i < bufferLength; i++) {
+					barHeight = (dataArray[i] / 255) * cvs.height;
+
+					const gradient = ctx.createLinearGradient(0, cvs.height, 0, 0);
+					gradient.addColorStop(0, 'rgba(168, 85, 247, 0.8)');
+					gradient.addColorStop(1, 'rgba(236, 72, 153, 0.8)');
+
+					ctx.fillStyle = gradient;
+					ctx.fillRect(x, cvs.height - barHeight, barWidth - 2, barHeight);
+
+					x += barWidth;
+				}
+			};
+
+			draw();
+		} catch (e) {
+			console.error('Visualizer init failed:', e);
+		}
+	}
+
 	onMount(async () => {
 		pb = await getPocketBase();
 	});
@@ -148,12 +208,18 @@
 		if (unsubscribe) {
 			unsubscribe();
 		}
+		if (animationId) cancelAnimationFrame(animationId);
+		if (audioContext) audioContext.close();
 	});
 
 	$effect(() => {
 		if (track && audio) {
 			// When track changes, auto play
 			isPlaying.set(true);
+		}
+
+		if (track && audio && canvas && !audioContext) {
+			initVisualizer();
 		}
 
 		// Smart streaming subscription
@@ -224,10 +290,6 @@
 		const shuffled = [...trackQueue].sort(() => Math.random() - 0.5);
 		queue.set(shuffled);
 	}
-
-	onMount(async () => {
-		pb = await getPocketBase();
-	});
 </script>
 
 {#if track}
@@ -377,7 +439,7 @@
 					</p>
 				</div>
 				<!-- Like/Dislike/Add Buttons -->
-				<div class="flex items-center gap-1">
+				<div class="flex items-center gap-4">
 					<button
 						class="transition-colors {$userReactions[track.id] === 'like'
 							? 'text-green-400'
@@ -451,7 +513,12 @@
 					>
 						<i class="ri-skip-forward-fill text-xl"></i>
 					</button>
+					<div class="w-6"></div>
 				</div>
+
+				<!-- Visualizer -->
+				<canvas bind:this={canvas} width="400" height="20" class="w-full max-w-md opacity-80"
+				></canvas>
 
 				<!-- Progress Bar -->
 				<div class="flex w-full max-w-md items-center gap-2 text-xs text-gray-400">
@@ -558,6 +625,7 @@
 			bind:this={audio}
 			bind:volume
 			bind:muted
+			crossorigin="anonymous"
 			src={track.audio_url || track.stream_audio_url}
 			ontimeupdate={handleTimeUpdate}
 			onloadedmetadata={handleLoadedMetadata}
