@@ -171,10 +171,10 @@ export const POST: RequestHandler = async ({ request }) => {
                                 }
 
                                 if (!trackRecord.generation_prompt) {
-                                    const generation_prompt = await pb.collection('radio_generate_requests').getFirstListItem(`taskId = "${task_id}"`)
-                                    if (generation_prompt.prompt) {
+                                    const generateRequestRecord = await pb.collection('radio_generate_requests').getFirstListItem(`taskId = "${task_id}"`)
+                                    if (generateRequestRecord.generation_prompt) {
                                         await pb.collection('radio_music_tracks').update(trackRecord.id, {
-                                            generation_prompt: generation_prompt.prompt
+                                            generation_prompt: generateRequestRecord.generation_prompt
                                         })
                                     }
                                 }

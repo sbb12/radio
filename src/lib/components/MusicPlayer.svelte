@@ -10,6 +10,8 @@
 	import { getPocketBase } from '$lib/pocketbase';
 	import PocketBase from 'pocketbase';
 	import { onMount, onDestroy } from 'svelte';
+	import { playlists } from '$lib/stores/playlists';
+	import { removeFromPlaylist } from '$lib/stores/trackActions';
 
 	let audio = $state<HTMLAudioElement>();
 	let pb: PocketBase;
@@ -180,34 +182,28 @@
 	});
 	let showQueue = $state(false);
 	let showPlaylistModal = $state(false);
-	let playlists = $state<any[]>([]);
 
-	$effect(() => {
-		if (track) {
-			fetchReaction(track.id);
-		}
-	});
-
-	async function fetchPlaylists() {
-		if (pb.authStore.isValid) {
-			try {
-				const records = await pb.collection('radio_playlists').getFullList({
-					sort: '-created',
-					filter: `user = "${pb.authStore.model?.id}"`
-				});
-				playlists = records;
-			} catch (e) {
-				console.error('Error fetching playlists:', e);
-			}
-		}
+	function isInPlaylist(trackId: string) {
+		return $playlists.some((p: any) => p.trackIds?.includes(trackId));
 	}
 
 	async function handleAddToPlaylist(playlistId: string) {
 		if (!track) return;
-		const success = await addToPlaylist(playlistId, track.id);
-		if (success) {
-			showPlaylistModal = false;
+
+		const playlist = $playlists.find((p: any) => p.id === playlistId);
+		const isAlreadyIn = playlist?.trackIds?.includes(track.id);
+
+		if (isAlreadyIn) {
+			await removeFromPlaylist(playlistId, track.id);
+		} else {
+			await addToPlaylist(playlistId, track.id);
 		}
+	}
+
+	function formatDuration(seconds: number): string {
+		if (!seconds || isNaN(seconds)) return '0m';
+		const mins = Math.floor(seconds / 60);
+		return `${mins}m`;
 	}
 
 	function toggleQueue() {
@@ -231,7 +227,6 @@
 
 	onMount(async () => {
 		pb = await getPocketBase();
-		fetchPlaylists();
 	});
 </script>
 
@@ -239,7 +234,7 @@
 	<!-- Playlist Modal -->
 	{#if showPlaylistModal}
 		<div
-			class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+			class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
 		>
 			<div class="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
 				<div class="mb-6 flex items-center justify-between">
@@ -253,9 +248,13 @@
 				</div>
 
 				<div class="custom-scrollbar max-h-[60vh] space-y-2 overflow-y-auto">
-					{#each playlists as playlist}
+					{#each $playlists as playlist}
 						<button
-							class="flex w-full items-center gap-4 rounded-xl bg-white/5 p-3 text-left transition-colors hover:bg-white/10"
+							class="flex w-full items-center gap-4 rounded-xl bg-white/5 p-3 text-left transition-colors hover:bg-white/10 {playlist.trackIds?.includes(
+								track.id
+							)
+								? 'border border-green-500/50 bg-green-500/10'
+								: ''}"
 							onclick={() => handleAddToPlaylist(playlist.id)}
 						>
 							<div class="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
@@ -271,10 +270,16 @@
 							</div>
 							<div>
 								<h4 class="font-bold text-white">{playlist.name}</h4>
+								<p class="text-sm text-gray-400">
+									{playlist.count || 0} songs • {formatDuration(playlist.duration)}
+								</p>
 							</div>
+							{#if playlist.trackIds?.includes(track.id)}
+								<i class="ri-check-line ml-auto text-xl text-green-500"></i>
+							{/if}
 						</button>
 					{/each}
-					{#if playlists.length === 0}
+					{#if $playlists.length === 0}
 						<p class="text-center text-gray-400">No playlists found.</p>
 					{/if}
 				</div>
@@ -327,7 +332,9 @@
 								>
 									{t.title}
 								</h4>
-								<p class="truncate text-xs text-gray-400">{t.model_name || 'Unknown'}</p>
+								<p class="truncate text-xs text-gray-400">
+									{t.model_name === 'chirp-crow' ? 'V5' : t.model_name || 'Unknown'}
+								</p>
 							</div>
 							<button
 								class="text-gray-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-400"
@@ -345,26 +352,32 @@
 	<div
 		class="fixed right-0 bottom-0 left-0 z-50 border-t border-white/10 bg-slate-900/95 px-4 py-3 shadow-2xl backdrop-blur-lg transition-transform duration-300 ease-in-out"
 	>
-		<div class="mx-auto flex max-w-7xl items-center gap-4">
+		<div class="mx-auto flex max-w-7xl flex-col items-center gap-4 sm:flex-row">
 			<!-- Track Info -->
-			<div class="flex w-1/4 min-w-[150px] items-center gap-3">
+			<div
+				class="flex w-full items-center justify-between gap-3 sm:w-1/4 sm:min-w-[150px] sm:justify-start"
+			>
 				{#if track.image_url}
 					<img
 						src={track.image_url}
 						alt={track.title}
-						class="h-12 w-12 rounded bg-gray-800 object-cover shadow-lg"
+						class="h-10 w-10 rounded bg-gray-800 object-cover shadow-lg sm:h-12 sm:w-12"
 					/>
 				{:else}
-					<div class="flex h-12 w-12 items-center justify-center rounded bg-gray-800">
+					<div
+						class="flex h-10 w-10 items-center justify-center rounded bg-gray-800 sm:h-12 sm:w-12"
+					>
 						<i class="ri-music-fill text-xl text-gray-400"></i>
 					</div>
 				{/if}
-				<div class="overflow-hidden">
+				<div class="min-w-0 flex-1 overflow-hidden">
 					<h3 class="truncate text-sm font-bold text-white">{track.title}</h3>
-					<p class="truncate text-xs text-gray-400">{track.model_name || 'Unknown Model'}</p>
+					<p class="truncate text-xs text-gray-400">
+						{track.model_name === 'chirp-crow' ? 'V5' : track.model_name || 'Unknown Model'}
+					</p>
 				</div>
-				<!-- Like/Dislike/Add Buttons (Mobile hidden or small) -->
-				<div class="ml-2 flex items-center gap-1">
+				<!-- Like/Dislike/Add Buttons -->
+				<div class="flex items-center gap-1">
 					<button
 						class="transition-colors {$userReactions[track.id] === 'like'
 							? 'text-green-400'
@@ -389,20 +402,22 @@
 						></i>
 					</button>
 					<button
-						class="text-gray-400 hover:text-purple-400"
-						title="Add to Playlist"
+						class="transition-colors {isInPlaylist(track.id)
+							? 'text-green-400'
+							: 'text-gray-400 hover:text-purple-400'}"
+						title={isInPlaylist(track.id) ? 'In Playlist' : 'Add to Playlist'}
 						onclick={() => {
-							fetchPlaylists();
 							showPlaylistModal = true;
 						}}
 					>
-						<i class="ri-play-list-add-line"></i>
+						<i class={isInPlaylist(track.id) ? 'ri-play-list-add-fill' : 'ri-play-list-add-line'}
+						></i>
 					</button>
 				</div>
 			</div>
 
 			<!-- Controls -->
-			<div class="flex flex-1 flex-col items-center gap-1">
+			<div class="flex w-full flex-1 flex-col items-center gap-2 sm:gap-1">
 				<div class="flex items-center gap-4">
 					<button
 						class="cursor-pointer text-gray-400 transition-colors hover:text-white"
@@ -477,7 +492,7 @@
 			</div>
 
 			<!-- Volume / Actions -->
-			<div class="flex w-1/4 items-center justify-end gap-3">
+			<div class="flex w-full items-center justify-between gap-3 sm:w-1/4 sm:justify-end">
 				<div class="flex items-center gap-2">
 					<button
 						onclick={toggleMute}

@@ -3,7 +3,13 @@
 	import { enhance } from '$app/forms';
 	import 'remixicon/fonts/remixicon.css';
 	import { currentTrack, isPlaying, queue } from '$lib/stores';
-	import { addToPlaylist } from '$lib/stores/trackActions';
+	import { addToPlaylist, removeFromPlaylist } from '$lib/stores/trackActions';
+	import {
+		playlists,
+		addPlaylistToStore,
+		updatePlaylistInStore,
+		removePlaylistFromStore
+	} from '$lib/stores/playlists';
 	import { getPocketBase } from '$lib/pocketbase';
 	import type PocketBase from 'pocketbase';
 	import { onMount, onDestroy } from 'svelte';
@@ -14,12 +20,17 @@
 	let { data } = $props();
 	let user = $derived(data.user);
 	let tracks = $state(data.tracks || []);
-	let playlists = $state(data.playlists || []);
+	$effect(() => {
+		if (data.tracks) {
+			tracks = data.tracks;
+		}
+	});
 	let showPlaylistModal = $state(false);
 	let selectedTrackForPlaylist: any = $state(null);
 
 	// Generation form state
 	let prompt = $state('');
+	let lyrics = $state('');
 	let customMode = $state(false);
 	let instrumental = $state(false);
 	let model = $state('V5');
@@ -30,6 +41,7 @@
 	let weirdnessConstraint = $state<number | undefined>(0.2);
 	let audioWeight = $state<number | undefined>(undefined);
 	let negativeTags = $state('');
+	let enhancePrompt = $state(false);
 
 	// UI state
 	let isGenerating = $state(false);
@@ -50,6 +62,12 @@
 			prompt = savedPrompt;
 		}
 
+		// Load instrumental from localStorage
+		const savedInstrumental = localStorage.getItem('create_instrumental');
+		if (savedInstrumental) {
+			instrumental = savedInstrumental === 'true';
+		}
+
 		// Subscribe to tracks collection
 		pb.collection('radio_music_tracks').subscribe('*', function (e) {
 			if (e.action === 'create') {
@@ -62,27 +80,33 @@
 				// Remove placeholder if it exists
 				generatingPlaceholder = null;
 			} else if (e.action === 'update') {
-				// Update existing track
-				tracks = tracks.map((t) => {
-					if (t.id === e.record.id) {
-						return {
-							...e.record,
-							title: e.record.title || 'Untitled'
-						};
-					}
-					return t;
-				});
+				if (e.record.deleted) {
+					tracks = tracks.filter((t) => t.id !== e.record.id);
+				} else {
+					// Update existing track
+					tracks = tracks.map((t) => {
+						if (t.id === e.record.id) {
+							return {
+								...e.record,
+								title: e.record.title || 'Untitled'
+							};
+						}
+						return t;
+					});
+				}
+			} else if (e.action === 'delete') {
+				tracks = tracks.filter((t) => t.id !== e.record.id);
 			}
 		});
 
 		// Subscribe to playlists collection
 		pb.collection('radio_playlists').subscribe('*', function (e) {
 			if (e.action === 'create') {
-				playlists = [e.record, ...playlists];
+				addPlaylistToStore(e.record);
 			} else if (e.action === 'update') {
-				playlists = playlists.map((p) => (p.id === e.record.id ? e.record : p));
+				updatePlaylistInStore(e.record);
 			} else if (e.action === 'delete') {
-				playlists = playlists.filter((p) => p.id !== e.record.id);
+				removePlaylistFromStore(e.record.id);
 			}
 		});
 	});
@@ -91,10 +115,13 @@
 		if (prompt) {
 			localStorage.setItem('create_prompt', prompt);
 		}
+		localStorage.setItem('create_instrumental', String(instrumental));
 	});
 
 	$effect(() => {
-		playlists = data.playlists || [];
+		if (data.playlists) {
+			playlists.set(data.playlists);
+		}
 	});
 
 	onDestroy(() => {
@@ -110,33 +137,47 @@
 		success = null;
 		isGenerating = true;
 
+		// Set placeholder immediately
+		generatingPlaceholder = {
+			id: 'generating',
+			title: customMode ? title : 'Untitled',
+			model_name: model,
+			tags: customMode ? style : prompt,
+			image_url: null,
+			status: 'generating'
+		};
+
 		try {
 			const requestBody: any = {
 				customMode,
 				instrumental,
-				model
+				model,
+				enhance: enhancePrompt
 			};
 
 			if (customMode) {
 				if (!style.trim()) {
 					error = 'Style is required in Custom Mode';
 					isGenerating = false;
+					generatingPlaceholder = null;
 					return;
 				}
 				if (!title.trim()) {
 					error = 'Title is required in Custom Mode';
 					isGenerating = false;
+					generatingPlaceholder = null;
 					return;
 				}
 				requestBody.style = style.trim();
 				requestBody.title = title.trim();
-				if (!instrumental && prompt.trim()) {
-					requestBody.prompt = prompt.trim();
+				if (!instrumental && lyrics.trim()) {
+					requestBody.prompt = lyrics.trim();
 				}
 			} else {
 				if (!prompt.trim()) {
 					error = 'Prompt is required';
 					isGenerating = false;
+					generatingPlaceholder = null;
 					return;
 				}
 				requestBody.prompt = prompt.trim();
@@ -161,30 +202,20 @@
 
 			if (!response.ok) {
 				error = result.error || 'Failed to generate song';
+				generatingPlaceholder = null;
 				return;
 			}
 
+			// Update placeholder if enhanced
+			if (result.enhanced) {
+				generatingPlaceholder = {
+					...generatingPlaceholder,
+					title: result.enhanced.title,
+					tags: result.enhanced.style
+				};
+			}
+
 			success = 'Song generation started! It will take a moment';
-
-			// Set placeholder
-			generatingPlaceholder = {
-				id: 'generating',
-				title: customMode ? title : 'Untitled',
-				model_name: model,
-				tags: customMode ? style : prompt,
-				image_url: null,
-				status: 'generating'
-			};
-
-			// Reset form
-			prompt = '';
-			style = '';
-			title = '';
-			vocalGender = '';
-			styleWeight = undefined;
-			weirdnessConstraint = undefined;
-			audioWeight = undefined;
-			negativeTags = '';
 
 			setTimeout(() => {
 				success = null;
@@ -193,7 +224,12 @@
 			console.error('Generation error:', err);
 			error = err.message || 'Failed to generate song';
 		} finally {
-			isGenerating = false;
+			if (isGenerating) {
+				setTimeout(() => {
+					isGenerating = false;
+					error = null;
+				}, 10000);
+			}
 		}
 	}
 
@@ -226,10 +262,14 @@
 
 	async function handleAddToPlaylist(playlistId: string) {
 		if (!selectedTrackForPlaylist) return;
-		const success = await addToPlaylist(playlistId, selectedTrackForPlaylist.id);
-		if (success) {
-			showPlaylistModal = false;
-			selectedTrackForPlaylist = null;
+
+		const playlist = $playlists.find((p: any) => p.id === playlistId);
+		const isAlreadyIn = playlist?.trackIds?.includes(selectedTrackForPlaylist.id);
+
+		if (isAlreadyIn) {
+			await removeFromPlaylist(playlistId, selectedTrackForPlaylist.id);
+		} else {
+			await addToPlaylist(playlistId, selectedTrackForPlaylist.id);
 		}
 	}
 </script>
@@ -268,25 +308,27 @@
 						<!-- Mode Selection -->
 						<div>
 							<label class="mb-2 block text-sm font-medium text-gray-300">Generation Mode</label>
-							<div class="flex gap-4">
-								<label class="flex cursor-pointer items-center gap-2">
-									<input
-										type="radio"
-										bind:group={customMode}
-										value={false}
-										class="h-4 w-4 cursor-pointer text-purple-600 focus:ring-2 focus:ring-purple-500"
-									/>
-									<span class="text-sm text-gray-300">Simple Mode</span>
-								</label>
-								<label class="flex cursor-pointer items-center gap-2">
-									<input
-										type="radio"
-										bind:group={customMode}
-										value={true}
-										class="h-4 w-4 cursor-pointer text-purple-600 focus:ring-2 focus:ring-purple-500"
-									/>
-									<span class="text-sm text-gray-300">Custom Mode</span>
-								</label>
+							<div class="flex rounded-lg bg-white/5 p-1">
+								<button
+									type="button"
+									class="flex-1 rounded-md py-2 text-sm font-medium transition-all {customMode ===
+									false
+										? 'bg-purple-600 text-white shadow-lg'
+										: 'text-gray-400 hover:text-white'}"
+									onclick={() => (customMode = false)}
+								>
+									Simple Mode
+								</button>
+								<button
+									type="button"
+									class="flex-1 rounded-md py-2 text-sm font-medium transition-all {customMode ===
+									true
+										? 'bg-purple-600 text-white shadow-lg'
+										: 'text-gray-400 hover:text-white'}"
+									onclick={() => (customMode = true)}
+								>
+									Custom Mode
+								</button>
 							</div>
 						</div>
 
@@ -302,24 +344,61 @@
 							</select>
 						</div>
 
-						<!-- Prompt (Simple Mode or Custom Mode with vocals) -->
-						{#if !customMode || !instrumental}
+						<!-- Prompt (Simple Mode) -->
+						{#if !customMode}
 							<div>
 								<label for="prompt" class="mb-2 block text-sm font-medium text-gray-300">
-									Prompt {customMode ? '(Optional for instrumental)' : '(Required)'}
+									Prompt (Required)
 								</label>
 								<textarea
 									id="prompt"
 									bind:value={prompt}
-									required={!customMode}
+									required
 									placeholder="e.g., A upbeat electronic dance track with catchy melodies..."
 									rows="4"
-									maxlength={customMode ? 5000 : 500}
+									maxlength="500"
 									class="input-field"
 								></textarea>
 								<p class="mt-1 text-xs text-gray-400">
-									{prompt.length}/{customMode ? 5000 : 500} characters
+									{prompt.length}/500 characters
 								</p>
+
+								<div class="mt-2" class:hidden={instrumental}>
+									<button
+										type="button"
+										class="flex w-full items-center justify-between rounded-lg border px-4 py-3 transition-all {enhancePrompt
+											? 'border-purple-500/50 bg-purple-600/20 text-purple-300'
+											: 'border-white/10 bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'}"
+										onclick={() => (enhancePrompt = !enhancePrompt)}
+									>
+										<div class="flex items-center gap-3">
+											<div
+												class="flex h-8 w-8 items-center justify-center rounded-full {enhancePrompt
+													? 'bg-purple-500/20'
+													: 'bg-white/10'}"
+											>
+												<i class="ri-magic-line text-lg"></i>
+											</div>
+											<div class="text-left">
+												<div class="font-medium">Enhance Prompt</div>
+												<div class="text-xs opacity-70">
+													Additional AI to enhance Lyrics and style
+												</div>
+											</div>
+										</div>
+										<div
+											class="relative h-6 w-11 rounded-full transition-colors {enhancePrompt
+												? 'bg-purple-500'
+												: 'bg-gray-600'}"
+										>
+											<div
+												class="absolute top-1 left-1 h-4 w-4 rounded-full bg-white transition-transform {enhancePrompt
+													? 'translate-x-5'
+													: 'translate-x-0'}"
+											></div>
+										</div>
+									</button>
+								</div>
 							</div>
 						{/if}
 
@@ -359,6 +438,26 @@
 								<p class="mt-1 text-xs text-gray-400">{title.length}/80 characters</p>
 							</div>
 
+							<!-- Lyrics (Custom Mode) -->
+							{#if !instrumental}
+								<div>
+									<label for="lyrics" class="mb-2 block text-sm font-medium text-gray-300">
+										Lyrics
+									</label>
+									<textarea
+										id="lyrics"
+										bind:value={lyrics}
+										placeholder="Enter lyrics here, or leave empty for instrumental..."
+										rows="6"
+										maxlength="5000"
+										class="input-field"
+									></textarea>
+									<p class="mt-1 text-xs text-gray-400">
+										{lyrics.length}/5000 characters
+									</p>
+								</div>
+							{/if}
+
 							<div>
 								<label for="negativeTags" class="mb-2 block text-sm font-medium text-gray-300">
 									Negative Tags (Optional)
@@ -371,7 +470,6 @@
 									class="input-field"
 								/>
 							</div>
-
 							<div>
 								<label for="vocalGender" class="mb-2 block text-sm font-medium text-gray-300">
 									Vocal Gender (Optional)
@@ -435,17 +533,36 @@
 							</div>
 						{/if}
 
-						<!-- Instrumental Checkbox -->
-						<div class="flex items-center gap-3">
-							<label class="flex cursor-pointer items-center gap-2">
-								<input
-									type="checkbox"
-									bind:checked={instrumental}
-									class="h-5 w-5 cursor-pointer rounded border-white/20 bg-white/10 text-purple-600 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0"
-								/>
-								<span class="text-sm font-medium text-gray-300">Instrumental</span>
-							</label>
-						</div>
+						<!-- Instrumental Toggle -->
+						<button
+							type="button"
+							class="flex w-full items-center justify-between rounded-lg border px-4 py-3 transition-all {instrumental
+								? 'border-purple-500/50 bg-purple-600/20 text-purple-300'
+								: 'border-white/10 bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'}"
+							onclick={() => (instrumental = !instrumental)}
+						>
+							<div class="flex items-center gap-3">
+								<div
+									class="flex h-8 w-8 items-center justify-center rounded-full {instrumental
+										? 'bg-purple-500/20'
+										: 'bg-white/10'}"
+								>
+									<i class="ri-music-line text-lg"></i>
+								</div>
+								<span class="font-medium">Instrumental</span>
+							</div>
+							<div
+								class="relative h-6 w-11 rounded-full transition-colors {instrumental
+									? 'bg-purple-500'
+									: 'bg-gray-600'}"
+							>
+								<div
+									class="absolute top-1 left-1 h-4 w-4 rounded-full bg-white transition-transform {instrumental
+										? 'translate-x-5'
+										: 'translate-x-0'}"
+								></div>
+							</div>
+						</button>
 
 						<!-- Submit Button -->
 						<button type="submit" disabled={isGenerating} class="btn-primary w-full">
@@ -548,7 +665,9 @@
 								<h3 class="text-2xl font-bold text-white">{$currentTrack.title}</h3>
 								<div class="mt-2 flex flex-wrap gap-2">
 									<span class="rounded bg-purple-500/20 px-2 py-1 text-xs text-purple-300">
-										{$currentTrack.model_name || 'Unknown Model'}
+										{$currentTrack.model_name === 'chirp-crow'
+											? 'V5'
+											: $currentTrack.model_name || 'Unknown Model'}
 									</span>
 									{#if $currentTrack.tags}
 										<span class="rounded bg-white/10 px-2 py-1 text-xs text-gray-400">
@@ -618,9 +737,13 @@
 			</div>
 
 			<div class="space-y-2">
-				{#each playlists as playlist}
+				{#each $playlists as playlist}
 					<button
-						class="flex w-full items-center gap-4 rounded-xl bg-white/5 p-3 text-left transition-colors hover:bg-white/10"
+						class="flex w-full items-center gap-4 rounded-xl bg-white/5 p-3 text-left transition-colors hover:bg-white/10 {playlist.trackIds?.includes(
+							selectedTrackForPlaylist?.id
+						)
+							? 'border border-green-500/50 bg-green-500/10'
+							: ''}"
 						onclick={() => handleAddToPlaylist(playlist.id)}
 					>
 						<div class="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
@@ -640,6 +763,9 @@
 								{playlist.count || 0} songs • {formatDuration(playlist.duration)}
 							</p>
 						</div>
+						{#if playlist.trackIds?.includes(selectedTrackForPlaylist?.id)}
+							<i class="ri-check-line ml-auto text-xl text-green-500"></i>
+						{/if}
 					</button>
 				{/each}
 			</div>

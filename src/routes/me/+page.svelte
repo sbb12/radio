@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { currentTrack, isPlaying } from '$lib/stores';
-	import { addToPlaylist } from '$lib/stores/trackActions';
+	import { currentTrack, isPlaying, queue } from '$lib/stores';
+	import { addToPlaylist, removeFromPlaylist } from '$lib/stores/trackActions';
+	import { playlists, addPlaylistToStore, removePlaylistFromStore } from '$lib/stores/playlists';
+	import { likedSongs } from '$lib/stores/likedSongs';
 	import { enhance } from '$app/forms';
 	import 'remixicon/fonts/remixicon.css';
 	import { invalidateAll } from '$app/navigation';
@@ -12,11 +14,18 @@
 
 	let { data } = $props();
 	let user = $derived(data.user);
-	let tracks = $derived(data.tracks || []);
-	let playlists = $state(data.playlists || []);
+	let tracks = $state(data.tracks || []);
 
 	$effect(() => {
-		playlists = data.playlists || [];
+		if (data.tracks) {
+			tracks = data.tracks;
+		}
+	});
+
+	$effect(() => {
+		if (data.playlists) {
+			playlists.set(data.playlists);
+		}
 	});
 
 	let pb: PocketBase;
@@ -30,12 +39,30 @@
 			} else if (e.action === 'update') {
 				invalidateAll();
 			} else if (e.action === 'delete') {
-				playlists = playlists.filter((p) => p.id !== e.record.id);
+				removePlaylistFromStore(e.record.id);
 			}
 		});
 
 		pb.collection('radio_playlist_track').subscribe('*', () => {
 			invalidateAll();
+		});
+
+		pb.collection('radio_music_tracks').subscribe('*', (e) => {
+			if (e.action === 'create') {
+				// Add new track if it belongs to user
+				if (e.record.user === user.id) {
+					const newTrack = { ...e.record, title: e.record.title || 'Untitled' };
+					tracks = [newTrack, ...tracks];
+				}
+			} else if (e.action === 'update') {
+				if (e.record.deleted) {
+					tracks = tracks.filter((t) => t.id !== e.record.id);
+				} else {
+					tracks = tracks.map((t) => (t.id === e.record.id ? { ...t, ...e.record } : t));
+				}
+			} else if (e.action === 'delete') {
+				tracks = tracks.filter((t) => t.id !== e.record.id);
+			}
 		});
 	});
 
@@ -43,6 +70,7 @@
 		if (pb) {
 			pb.collection('radio_playlists').unsubscribe();
 			pb.collection('radio_playlist_track').unsubscribe();
+			pb.collection('radio_music_tracks').unsubscribe();
 		}
 	});
 
@@ -80,10 +108,58 @@
 
 	async function handleAddToPlaylist(playlistId: string) {
 		if (!selectedTrackForPlaylist) return;
-		const success = await addToPlaylist(playlistId, selectedTrackForPlaylist.id);
-		if (success) {
-			showPlaylistModal = false;
-			selectedTrackForPlaylist = null;
+
+		const playlist = $playlists.find((p: any) => p.id === playlistId);
+		const isAlreadyIn = playlist?.trackIds?.includes(selectedTrackForPlaylist.id);
+
+		if (isAlreadyIn) {
+			await removeFromPlaylist(playlistId, selectedTrackForPlaylist.id);
+		} else {
+			await addToPlaylist(playlistId, selectedTrackForPlaylist.id);
+		}
+	}
+
+	async function playPlaylist(e: MouseEvent, playlistId: string) {
+		e.preventDefault();
+		e.stopPropagation();
+
+		let tracksToPlay: any[] = [];
+
+		if (playlistId === 'liked') {
+			// For liked songs, we might need to fetch the actual track objects if we only have IDs in the store.
+			// However, for now, let's just navigate to the playlist page which handles playing.
+			// Or better, fetch them.
+			// Since we want immediate play, let's fetch.
+			try {
+				const records = await pb.collection('radio_user_track_reaction').getFullList({
+					filter: `user="${user.id}" && reaction="like"`,
+					expand: 'track',
+					sort: '-created'
+				});
+				tracksToPlay = records.map((r: any) => r.expand?.track).filter((t: any) => t && !t.deleted);
+			} catch (err) {
+				console.error('Error fetching liked songs for play:', err);
+				return;
+			}
+		} else {
+			// Regular playlist
+			try {
+				const records = await pb.collection('radio_playlist_track').getFullList({
+					filter: `playlist="${playlistId}"`,
+					expand: 'track',
+					sort: 'created'
+				});
+				tracksToPlay = records.map((r: any) => r.expand?.track).filter((t: any) => t && !t.deleted);
+			} catch (err) {
+				console.error('Error fetching playlist songs for play:', err);
+				return;
+			}
+		}
+
+		if (tracksToPlay.length > 0) {
+			currentTrack.set(tracksToPlay[0]);
+			isPlaying.set(true);
+			queue.set(tracksToPlay);
 		}
 	}
 </script>
@@ -138,7 +214,7 @@
 				</form>
 			{/if}
 
-			{#if playlists.length === 0}
+			{#if $playlists.length === 0}
 				<div class="rounded-lg border border-white/10 bg-white/5 p-8 text-center">
 					<div class="mb-4 flex justify-center">
 						<div class="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
@@ -150,12 +226,39 @@
 				</div>
 			{:else}
 				<div class="grid grid-cols-3 gap-4 sm:grid-cols-4 lg:grid-cols-6">
-					{#each playlists as playlist}
+					<!-- Liked Songs Playlist -->
+					<a
+						href="/me/playlist/liked"
+						class="group relative cursor-pointer rounded-xl bg-white/5 p-4 transition-all hover:bg-white/10"
+					>
+						<div class="mb-4 aspect-square overflow-hidden rounded-lg bg-gray-800 shadow-lg">
+							<div
+								class="flex h-full w-full items-center justify-center bg-gradient-to-br from-purple-600 to-pink-600"
+							>
+								<i class="ri-heart-fill text-4xl text-white"></i>
+							</div>
+						</div>
+						<div class="flex items-center justify-between">
+							<div class="min-w-0 flex-1">
+								<h3 class="truncate font-bold text-white">Liked Songs</h3>
+								<p class="text-sm text-gray-400">{$likedSongs.count} songs</p>
+							</div>
+							<button
+								class="flex h-10 w-10 items-center justify-center rounded-full bg-green-500 text-white opacity-0 shadow-lg transition-all group-hover:opacity-100 hover:scale-105 hover:bg-green-400"
+								onclick={(e) => playPlaylist(e, 'liked')}
+								title="Play Liked Songs"
+							>
+								<i class="ri-play-fill ml-1 text-xl"></i>
+							</button>
+						</div>
+					</a>
+
+					{#each $playlists as playlist}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<a
 							href="/me/playlist/{playlist.id}"
-							class="group cursor-pointer rounded-xl bg-white/5 p-4 transition-all hover:bg-white/10"
+							class="group relative cursor-pointer rounded-xl bg-white/5 p-4 transition-all hover:bg-white/10"
 						>
 							<div class="mb-4 aspect-square overflow-hidden rounded-lg bg-gray-800 shadow-lg">
 								{#if playlist.cover}
@@ -172,10 +275,21 @@
 									</div>
 								{/if}
 							</div>
-							<h3 class="truncate font-bold text-white">{playlist.name}</h3>
-							<p class="text-sm text-gray-400">
-								{playlist.count || 0} songs • {formatDuration(playlist.duration)}
-							</p>
+							<div class="flex items-center justify-between">
+								<div class="min-w-0 flex-1">
+									<h3 class="truncate font-bold text-white">{playlist.name}</h3>
+									<p class="text-sm text-gray-400">
+										{playlist.count || 0} songs • {formatDuration(playlist.duration)}
+									</p>
+								</div>
+								<button
+									class="flex h-10 w-10 items-center justify-center rounded-full bg-green-500 text-white opacity-0 shadow-lg transition-all group-hover:opacity-100 hover:scale-105 hover:bg-green-400"
+									onclick={(e) => playPlaylist(e, playlist.id)}
+									title="Play Playlist"
+								>
+									<i class="ri-play-fill ml-1 text-xl"></i>
+								</button>
+							</div>
 						</a>
 					{/each}
 				</div>
@@ -197,7 +311,7 @@
 				</div>
 			</div>
 
-			<div class="card">
+			<div class="">
 				{#if filteredTracks.length === 0}
 					<div class="flex flex-1 items-center justify-center py-16 text-center">
 						<div>
@@ -243,9 +357,13 @@
 			</div>
 
 			<div class="space-y-2">
-				{#each playlists as playlist}
+				{#each $playlists as playlist}
 					<button
-						class="flex w-full items-center gap-4 rounded-xl bg-white/5 p-3 text-left transition-colors hover:bg-white/10"
+						class="flex w-full items-center gap-4 rounded-xl bg-white/5 p-3 text-left transition-colors hover:bg-white/10 {playlist.trackIds?.includes(
+							selectedTrackForPlaylist?.id
+						)
+							? 'border border-green-500/50 bg-green-500/10'
+							: ''}"
 						onclick={() => handleAddToPlaylist(playlist.id)}
 					>
 						<div class="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-800">
@@ -263,6 +381,9 @@
 							<h4 class="font-bold text-white">{playlist.name}</h4>
 							<p class="text-sm text-gray-400">{playlist.count || 0} songs</p>
 						</div>
+						{#if playlist.trackIds?.includes(selectedTrackForPlaylist?.id)}
+							<i class="ri-check-line ml-auto text-xl text-green-500"></i>
+						{/if}
 					</button>
 				{/each}
 			</div>

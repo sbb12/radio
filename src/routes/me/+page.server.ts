@@ -10,52 +10,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 
     const pb = await getPocketBase();
     let tracks: any[] = [];
-    let playlists: any[] = [];
+
 
     try {
         // Fetch tracks
         const trackRecords = await pb.collection('radio_music_tracks').getList(1, 50, {
-            filter: `user = "${locals.user.id}"`,
+            filter: `user = "${locals.user.id}" && deleted != true`,
             sort: '-created'
         });
 
         tracks = trackRecords.items
 
-        // Fetch playlists
-        try {
-            const playlistRecords = await pb.collection('radio_playlists').getList(1, 50, {
-                filter: `user = "${locals.user.id}"`,
-                sort: '-created'
-            });
 
-            const rawPlaylists = playlistRecords.items;
-
-            // Fetch all playlist tracks to calculate stats
-            // Using a single query to get all tracks for the user's playlists
-            // Assuming the user owns the playlists they see
-            let allPlaylistTracks: any[] = [];
-            try {
-                allPlaylistTracks = await pb.collection('radio_playlist_track').getFullList({
-                    filter: `playlist.user = "${locals.user.id}"`,
-                    expand: 'track'
-                });
-            } catch (e) {
-                console.log('Error fetching playlist tracks:', e);
-            }
-
-            playlists = rawPlaylists.map(p => {
-                const pTracks = allPlaylistTracks.filter(pt => pt.playlist === p.id);
-                const duration = pTracks.reduce((acc, pt) => acc + (pt.expand?.track?.duration || 0), 0);
-                return {
-                    ...p,
-                    count: pTracks.length,
-                    duration
-                };
-            });
-
-        } catch (e) {
-            console.log('Error fetching playlists (might not exist yet):', e);
-        }
 
     } catch (e) {
         console.error('Error fetching user data:', e);
@@ -81,7 +47,6 @@ export const load: PageServerLoad = async ({ locals }) => {
     return {
         user: locals.user,
         tracks,
-        playlists,
         userReactions
     };
 };
@@ -171,7 +136,9 @@ export const actions: Actions = {
         const pb = await getPocketBase();
 
         try {
-            await pb.collection('radio_music_tracks').delete(id);
+            await pb.collection('radio_music_tracks').update(id, {
+                deleted: true
+            });
             return { success: true };
         } catch (e) {
             console.error('Error deleting track:', e);

@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { currentTrack, isPlaying } from '$lib/stores';
+	import { currentTrack, isPlaying, queue } from '$lib/stores';
 	import { userReactions, toggleReaction } from '$lib/stores/trackActions';
+	import { playlists } from '$lib/stores/playlists';
 	import { enhance } from '$app/forms';
 
 	let {
@@ -9,6 +10,10 @@
 		onAddToPlaylist = undefined,
 		userReactions: initialReactions = {}
 	} = $props();
+
+	function isInPlaylist(trackId: string) {
+		return $playlists.some((p: any) => p.trackIds?.includes(trackId));
+	}
 
 	// Sync initial reactions to the store
 	$effect(() => {
@@ -20,6 +25,7 @@
 	function playTrack(track: any) {
 		currentTrack.set(track);
 		isPlaying.set(true);
+		queue.set(tracks);
 	}
 
 	function formatDate(dateString: string): string {
@@ -75,18 +81,17 @@
 					<!-- Visualizer Overlay -->
 					{#if track.id === $currentTrack?.id && $isPlaying}
 						<div class="absolute inset-0 flex items-center justify-center gap-1 bg-black/60">
-							<div
-								class="h-3 w-1 animate-[music-bar_1s_ease-in-out_infinite] rounded-full bg-purple-500"
-							></div>
-							<div
-								class="h-5 w-1 animate-[music-bar_1.2s_ease-in-out_infinite] rounded-full bg-purple-500"
-							></div>
-							<div
-								class="h-4 w-1 animate-[music-bar_0.8s_ease-in-out_infinite] rounded-full bg-purple-500"
-							></div>
-							<div
-								class="h-3 w-1 animate-[music-bar_1.1s_ease-in-out_infinite] rounded-full bg-purple-500"
-							></div>
+							<div class="flex h-[50%] flex-row items-center justify-center gap-1">
+								<div
+									class="h-3 w-1 animate-[music-bar_1s_ease-in-out_infinite] rounded-full bg-purple-500"
+								></div>
+								<div
+									class="h-5 w-1 animate-[music-bar_1.2s_ease-in-out_infinite] rounded-full bg-purple-500"
+								></div>
+								<div
+									class="h-4 w-1 animate-[music-bar_0.8s_ease-in-out_infinite] rounded-full bg-purple-500"
+								></div>
+							</div>
 						</div>
 					{/if}
 				</div>
@@ -101,7 +106,9 @@
 							{track.title}
 						</h3>
 						<div class="flex items-center gap-2 text-xs text-gray-400">
-							<span class="rounded bg-white/10 px-1.5 py-0.5">{track.model_name || 'Unknown'}</span>
+							<span class="rounded bg-white/10 px-1.5 py-0.5"
+								>{track.model_name === 'chirp-crow' ? 'V5' : track.model_name || 'Unknown'}</span
+							>
 							<span>•</span>
 							<span>{formatDate(track.create_time || track.created)}</span>
 							{#if track.tags}
@@ -112,18 +119,14 @@
 					</div>
 
 					<!-- Actions -->
-					<div
-						class="flex items-center gap-2 transition-opacity {$userReactions[track.id]
-							? 'opacity-100'
-							: 'opacity-0 group-hover:opacity-100'}"
-					>
+					<div class="flex items-center gap-2">
 						{#if !playlistMode}
 							<button
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 transition-colors hover:bg-white/20 {$userReactions[
+								class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 transition-all {$userReactions[
 									track.id
 								] === 'like'
-									? 'text-green-400'
-									: 'text-gray-400 hover:text-green-400'}"
+									? 'text-green-400 opacity-100'
+									: 'text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-white/20 hover:text-green-400'}"
 								title="Like"
 								onclick={(e) => {
 									e.stopPropagation();
@@ -137,11 +140,11 @@
 								></i>
 							</button>
 							<button
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 transition-colors hover:bg-white/20 {$userReactions[
+								class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 transition-all {$userReactions[
 									track.id
 								] === 'dislike'
-									? 'text-red-400'
-									: 'text-gray-400 hover:text-red-400'}"
+									? 'text-red-400 opacity-100'
+									: 'text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-white/20 hover:text-red-400'}"
 								title="Dislike"
 								onclick={(e) => {
 									e.stopPropagation();
@@ -154,22 +157,29 @@
 										: 'ri-thumb-down-line'}
 								></i>
 							</button>
+
 							<button
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-purple-400"
-								title="Add to Playlist"
+								class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 transition-all {isInPlaylist(
+									track.id
+								)
+									? 'text-green-400 opacity-100'
+									: 'text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-white/20 hover:text-purple-400'}"
+								title={isInPlaylist(track.id) ? 'In Playlist' : 'Add to Playlist'}
 								onclick={(e) => {
 									e.stopPropagation();
 									if (onAddToPlaylist) onAddToPlaylist(track);
 								}}
 							>
-								<i class="ri-play-list-add-line"></i>
+								<i
+									class={isInPlaylist(track.id) ? 'ri-play-list-add-fill' : 'ri-play-list-add-line'}
+								></i>
 							</button>
 						{/if}
 
 						<a
 							href={track.audio_url}
 							download
-							class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-white"
+							class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-white/20 hover:text-white"
 							title="Download"
 							onclick={(e) => e.stopPropagation()}
 						>
@@ -181,7 +191,7 @@
 								<input type="hidden" name="playlistTrackId" value={track.playlist_track_id} />
 								<button
 									type="submit"
-									class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-red-400"
+									class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-white/20 hover:text-red-400"
 									title="Remove from Playlist"
 									onclick={(e) => e.stopPropagation()}
 								>
@@ -193,7 +203,7 @@
 								<input type="hidden" name="id" value={track.id} />
 								<button
 									type="submit"
-									class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 transition-colors hover:bg-white/20 hover:text-red-400"
+									class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-white/20 hover:text-red-400"
 									title="Delete"
 									onclick={(e) => e.stopPropagation()}
 								>

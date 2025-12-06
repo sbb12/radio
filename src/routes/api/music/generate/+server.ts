@@ -1,7 +1,9 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { API_KEY, BASE_URL } from '$env/static/private';
+import { API_KEY, BASE_URL, AI_GATEWAY_API_KEY } from '$env/static/private';
 import { getPocketBase, validatePocketbase } from '$lib/pocketbase';
+import { createGateway, generateObject } from 'ai';
+import { z } from 'zod';
 
 // Suno API endpoint for music generation
 // Update this URL to match your Suno API endpoint
@@ -24,6 +26,8 @@ interface GenerateRequest {
 	styleWeight?: number;
 	weirdnessConstraint?: number;
 	audioWeight?: number;
+	generation_prompt?: string;
+	enhance?: boolean;
 }
 
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
@@ -53,6 +57,88 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			{ status: 400 }
 		);
 	}
+
+	// Handle Enhancement if requested
+	if (body.enhance && !body.customMode && body.promp && !body.instrumental) {
+		if (!AI_GATEWAY_API_KEY) {
+			return json({ error: 'Enhance feature is not available (Missing API Key)' }, { status: 503 });
+		}
+
+		try {
+			const gateway = createGateway({
+				apiKey: AI_GATEWAY_API_KEY,
+			});
+
+			const customPromptSchema = z.object({
+				title: z.string().max(100),
+				style: z.string().max(100),
+				prompt: z.string().max(5000),
+			});
+
+			const result = await generateObject({
+				model: gateway('openai/gpt-5.1-thinking'),
+				schema: customPromptSchema,
+				messages: [
+					{
+						role: 'system',
+						content: `
+You are a music expert. 
+Your task is to take a simple song description and convert it into parameters for a music generation AI.
+
+The lyrics should not be overly cliche, or generic.  the lyrics should also not reference the style of the music.
+
+Return ONLY a JSON object with the following fields:
+
+- "prompt": Full lyrics or song structure with section tags like [Intro], [Verse 1], [Pre-Chorus], [Chorus], [Bridge], [Outro].
+    - This field MUST contain only:
+        • section headers, descriptions of instruments, tempo, or mixing in square brackets
+        • lines of singable lyrics
+    - DO NOT include:
+        • production or arrangement notes
+        • comments, directions, or annotations like ">>" or "(guitars enter here)"
+        • anything that is not meant to be sung
+    - Max 5000 characters.
+    - Target a 3-4 minute song.
+
+- "style": Short description of genre and vibe ONLY. 
+    - No lyrics here.
+    - Max 100 characters.
+
+- "title": Short, catchy song title.
+    - No quotes.
+    - Max 100 characters.
+`,
+					},
+					{
+						role: 'user',
+						content: body.prompt,
+					},
+				],
+			});
+
+			const enhanced = result.object;
+
+			// Update body to use custom mode with enhanced values
+			body.customMode = true;
+			body.title = enhanced.title;
+			body.style = enhanced.style;
+			// Store original prompt + enhanced tag
+			body.generation_prompt = body.prompt + ' (Enhanced)';
+			// Use enhanced lyrics as the prompt for Suno
+			body.prompt = enhanced.prompt;
+
+		} catch (enhanceError) {
+			console.error('Enhance error:', enhanceError);
+			return json(
+				{ error: 'Failed to enhance prompt. Please try again or disable enhance.' },
+				{ status: 500 }
+			);
+		}
+	} else if (!body.customMode && body.prompt) {
+		// If not enhancing and simple mode, set generation_prompt
+		body.generation_prompt = body.prompt;
+	}
+
 	body.callBackUrl = `https://radio.sercan.co.uk/api/music/callback`;
 
 	// Validate the request body
@@ -92,10 +178,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		method: 'POST',
 		headers,
 		body: JSON.stringify(body)
+
 	});
 
 	// Get the response data
-	const contentType = response.headers.get('content-type');
 	const data = await response.json();
 
 	// Update PocketBase record with response
@@ -114,7 +200,16 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 
 	// Forward the response with the same status code
-	return json({ ...data, recordId: requestRecordId }, { status: response.status });
+	// Include enhanced details if they were generated, so frontend can update placeholder
+	return json({
+		...data,
+		recordId: requestRecordId,
+		enhanced: body.customMode && body.generation_prompt?.includes('(Enhanced)') ? {
+			title: body.title,
+			style: body.style,
+			prompt: body.prompt
+		} : undefined
+	}, { status: response.status });
 };
 
 function validateRequest(body: any): { valid: boolean; error?: string } {
@@ -229,6 +324,3 @@ function validateRequest(body: any): { valid: boolean; error?: string } {
 
 	return { valid: true };
 }
-
-
-

@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
         // Map the playlist tracks to get the actual track data, adding the playlist_track id for deletion
         const songs = playlistTracks.items.map(item => {
             const track = item.expand?.track;
-            if (track) {
+            if (track && !track.deleted) {
                 return {
                     ...track,
                     playlist_track_id: item.id // Store the junction table ID for removal

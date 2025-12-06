@@ -37,43 +37,9 @@ export const load: PageServerLoad = async ({ locals }) => {
         console.error('Error fetching reactions:', e);
     }
 
-    let playlists: any[] = [];
-    try {
-        const playlistRecords = await pb.collection('radio_playlists').getList(1, 50, {
-            filter: `user = "${locals.user.id}"`,
-            sort: '-created'
-        });
-
-        const rawPlaylists = playlistRecords.items;
-
-        // Fetch all playlist tracks to calculate stats
-        let allPlaylistTracks: any[] = [];
-        try {
-            allPlaylistTracks = await pb.collection('radio_playlist_track').getFullList({
-                filter: `playlist.user = "${locals.user.id}"`,
-                expand: 'track'
-            });
-        } catch (e) {
-            console.log('Error fetching playlist tracks:', e);
-        }
-
-        playlists = rawPlaylists.map(p => {
-            const pTracks = allPlaylistTracks.filter(pt => pt.playlist === p.id);
-            const duration = pTracks.reduce((acc, pt) => acc + (pt.expand?.track?.duration || 0), 0);
-            return {
-                ...p,
-                count: pTracks.length,
-                duration
-            };
-        });
-    } catch (e) {
-        console.log('Error fetching playlists:', e);
-    }
-
     return {
         user: locals.user,
         tracks,
-        playlists,
         userReactions
     };
 };

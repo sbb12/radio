@@ -1,650 +1,204 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { base } from '$app/paths';
-	import { page } from '$app/stores';
-	import PocketBase from 'pocketbase';
-	import { onDestroy, onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import { env } from '$env/dynamic/public';
-	import { currentTrack, isPlaying } from '$lib/stores';
+	import { onMount } from 'svelte';
+	import { currentTrack, isPlaying, queue } from '$lib/stores';
+	import SongList from '$lib/components/SongList.svelte';
 	import 'remixicon/fonts/remixicon.css';
 
 	let { data } = $props();
-	let track = $state<any>(null);
-	let nextTrack = $state<any>(null);
-	let activeRequest = $state(false);
-	let user = $state(data.user);
-	let generationPrompt = $state('');
-	let instrumental = $state(false);
-	let roomId = $state<string | null>(null);
-	let promptUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
+	let tracks = $state(data.tracks || []);
+	let shuffledTracks = $state<any[]>([]);
+	let isRadioActive = $state(false);
 
-	let audioElement: HTMLAudioElement | null = null;
-	let radioIsPlaying = $state(false);
-	let currentTime = $state(0);
-	let duration = $state(0);
-	let volume = $state(1);
-	let isLoading = $state(false);
-	let pb = $state<PocketBase | null>(null);
-	let shouldAutoPlay = $state(false);
-	let isUserActive = $state(true);
-	let lastActivityTime = $state(Date.now());
-	let inactivityCheckInterval: ReturnType<typeof setInterval> | null = null;
-	let activityUpdateHandler: (() => void) | null = null;
-	let isUpdatingPrompt = $state(false);
-	let isUpdatingInstrumental = $state(false);
-	let currentStart = $state<string | null>(null);
-	let disableGenerate = $state(false);
-	let allTracks = $state<any[]>([]);
-	let isLoadingTracks = $state(false);
-
-	onMount(async () => {
-		// Load volume from localStorage
-		if (browser) {
-			const savedVolume = localStorage.getItem('radio-volume');
-			if (savedVolume) {
-				const parsedVolume = parseFloat(savedVolume);
-				if (!isNaN(parsedVolume) && parsedVolume >= 0 && parsedVolume <= 1) {
-					volume = parsedVolume;
-				}
-			}
+	function shuffle(array: any[]) {
+		let currentIndex = array.length,
+			randomIndex;
+		while (currentIndex != 0) {
+			randomIndex = Math.floor(Math.random() * currentIndex);
+			currentIndex--;
+			[array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
 		}
+		return array;
+	}
 
-		// Initialize audio element once
-		if (browser) {
-			initializeAudioElement();
+	onMount(() => {
+		if (tracks.length > 0) {
+			shuffledTracks = shuffle([...tracks]);
 		}
-
-		// Use PUBLIC_POCKETBASE_URL if available, otherwise fallback to hardcoded URL
-		const pbUrl = (browser && env.PUBLIC_POCKETBASE_URL) || 'https://pb.sercan.co.uk';
-		pb = new PocketBase(pbUrl);
-
-		// Track user activity
-		const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
-		activityUpdateHandler = () => {
-			lastActivityTime = Date.now();
-			isUserActive = true;
-		};
-
-		activityEvents.forEach((event) => {
-			window.addEventListener(event, activityUpdateHandler!, { passive: true });
-		});
-
-		// Check for inactivity every 30 seconds
-		// User is considered inactive after 60 minutes of no activity
-		inactivityCheckInterval = setInterval(() => {
-			const timeSinceLastActivity = Date.now() - lastActivityTime;
-			if (timeSinceLastActivity > 60 * 60 * 1000) {
-				// 60 minutes
-				isUserActive = false;
-			}
-		}, 30000); // Check every 30 seconds
-
-		const room = await pb.collection('radio_rooms').getOne('corxga7q86bsc0s', {
-			expand: 'current_track,next_track,active_request'
-		});
-
-		roomId = room.id;
-
-		if (room.expand?.current_track) {
-			track = room.expand.current_track;
-			// Update audio source for initial track
-			updateAudioSource();
-		}
-		if (room.expand?.next_track) {
-			nextTrack = room.expand.next_track;
-		}
-		activeRequest = room.active_request || false;
-		generationPrompt = room.prompt || '';
-		instrumental = room.instrumental || false;
-		currentStart = room.current_start || null;
-		disableGenerate = room.disable_generate || false;
-
-		// Subscribe to changes only in the specified record
-		pb.collection('radio_rooms').subscribe(
-			'corxga7q86bsc0s',
-			function (e) {
-				const currentTrack = e.record.expand?.current_track;
-				const newNextTrack = e.record.expand?.next_track;
-				const newActiveRequest = e.record.active_request || false;
-				const newPrompt = e.record.prompt || '';
-				const newInstrumental = e.record.instrumental || false;
-				const newCurrentStart = e.record.current_start || null;
-				const newDisableGenerate = e.record.disable_generate || false;
-
-				// Update next track and active request status
-				nextTrack = newNextTrack || null;
-				activeRequest = newActiveRequest;
-				currentStart = newCurrentStart;
-				disableGenerate = newDisableGenerate;
-
-				// Update prompt and instrumental from room (only if changed externally and we're not currently updating)
-				if (!isUpdatingPrompt && newPrompt !== generationPrompt) {
-					generationPrompt = newPrompt;
-				}
-				if (!isUpdatingInstrumental && newInstrumental !== instrumental) {
-					instrumental = newInstrumental;
-				}
-
-				// Handle current track change
-				if (currentTrack && currentTrack.track_id !== track?.track_id) {
-					shouldAutoPlay = true;
-					track = currentTrack;
-					// Update audio source when track changes
-					updateAudioSource();
-				}
-
-				// handle current track switch to audio url from stream url
-				if (
-					currentTrack &&
-					currentTrack.stream_audio_url &&
-					currentTrack.audio_url !== track?.audio_url
-				) {
-					shouldAutoPlay = true;
-					track = currentTrack;
-					// Update audio source when track changes
-					updateAudioSource();
-				}
-			},
-			{
-				expand: 'current_track,next_track,active_request'
-			}
-		);
 	});
 
-	onDestroy(async () => {
-		if (promptUpdateTimeout) {
-			clearTimeout(promptUpdateTimeout);
+	function toggleRadio() {
+		if (!isRadioActive) {
+			// Start radio
+			if (shuffledTracks.length > 0) {
+				shuffledTracks = shuffle([...tracks]);
+				queue.set(shuffledTracks);
+				currentTrack.set(shuffledTracks[0]);
+				isPlaying.set(true);
+				isRadioActive = true;
+			}
+		} else {
+			// Toggle play/pause
+			isPlaying.update((v) => !v);
 		}
-		// Clean up activity listeners and intervals
-		if (activityUpdateHandler) {
-			const activityEvents = [
-				'mousedown',
-				'mousemove',
-				'keypress',
-				'scroll',
-				'touchstart',
-				'click'
-			];
-			activityEvents.forEach((event) => {
-				window.removeEventListener(event, activityUpdateHandler!);
-			});
-		}
-		if (inactivityCheckInterval) {
-			clearInterval(inactivityCheckInterval);
-		}
-		// Clean up audio element
-		if (audioElement) {
-			audioElement.pause();
-			audioElement.src = '';
-			audioElement = null;
-		}
-		pb?.collection('radio_rooms').unsubscribe('corxga7q86bsc0s');
-	});
+	}
 
-	// Get user from page data
+	// Determine if our radio queue is currently playing
 	$effect(() => {
-		user = $page.data.user;
+		// This is a simple check. In a real app we might want to track the "source" of the queue.
+		// For now, if we are playing and the current track is in our shuffled list, we assume radio is active.
+		if ($currentTrack && shuffledTracks.find((t) => t.id === $currentTrack.id)) {
+			isRadioActive = true;
+		}
 	});
-
-	// Initialize audio element once
-	function initializeAudioElement() {
-		if (typeof document === 'undefined' || audioElement) return;
-
-		audioElement = new Audio();
-		audioElement.volume = volume;
-
-		audioElement.addEventListener('loadedmetadata', () => {
-			duration = audioElement?.duration || 0;
-		});
-
-		audioElement.addEventListener('timeupdate', () => {
-			currentTime = audioElement?.currentTime || 0;
-		});
-
-		audioElement.addEventListener('ended', () => {
-			radioIsPlaying = false;			
-			currentTime = 0;
-			handleTrackEnded();
-		});
-
-		audioElement.addEventListener('play', () => {
-			radioIsPlaying = true;
-			isPlaying.set(false)
-			currentTrack.set(null)
-			shouldAutoPlay = true;
-			handleTrackPlay();
-		});
-
-		audioElement.addEventListener('pause', () => {
-			radioIsPlaying = false;
-			shouldAutoPlay = false;
-			handleTrackPause();
-		});
-
-		audioElement.addEventListener('loadstart', () => {
-			isLoading = true;
-		});
-
-		audioElement.addEventListener('canplay', () => {
-			isLoading = false;
-			// Auto-play when audio is ready if flag is set
-			if (shouldAutoPlay && audioElement) {
-				// Calculate elapsed time since current_start and skip to that position
-				if (currentStart && duration > 0) {
-					const startTime = new Date(currentStart).getTime();
-					const now = Date.now();
-					const elapsedSeconds = (now - startTime) / 1000;
-
-					// Only skip if elapsed time is positive and less than duration
-					if (elapsedSeconds > 0 && elapsedSeconds < duration) {
-						audioElement.currentTime = elapsedSeconds;
-						currentTime = elapsedSeconds;
-					}
-				}
-				audioElement.play().catch((err) => {
-					console.error('Auto-play error:', err);
-				});
-				shouldAutoPlay = false;
-			}
-		});
-	}
-
-	// Update audio source when track changes
-	function updateAudioSource() {
-		if (!audioElement) {
-			initializeAudioElement();
-		}
-
-		if (!audioElement) return;
-
-		if (track?.audio_url || track?.stream_audio_url) {
-			// Reset audio state
-			radioIsPlaying = false;
-			currentTime = 0;
-			duration = 0;
-			isLoading = false;
-
-			// Update the source
-			audioElement.pause();
-			audioElement.src = track.audio_url || track.stream_audio_url;
-			audioElement.load();
-		} else {
-			audioElement.pause();
-			audioElement.src = '';
-		}
-	}
-
-	function togglePlay() {
-		if (!audioElement) return;
-
-		if (radioIsPlaying) {
-			audioElement.pause();
-		} else {
-			// Calculate elapsed time since current_start and skip to that position when play is pressed
-			if (currentStart && duration > 0) {
-				const startTime = new Date(currentStart).getTime();
-				const now = Date.now();
-				const elapsedSeconds = (now - startTime) / 1000;
-
-				// Only skip if elapsed time is positive and less than duration
-				if (elapsedSeconds > 0 && elapsedSeconds < duration) {
-					audioElement.currentTime = elapsedSeconds;
-					currentTime = elapsedSeconds;
-				}
-			}
-			audioElement.play().catch((err) => {
-				console.error('Play error:', err);
-			});
-		}
-	}
-
-	function handleSeek(event: Event) {
-		if (!audioElement) return;
-		const target = event.target as HTMLInputElement;
-		const newTime = (parseFloat(target.value) / 100) * duration;
-		audioElement.currentTime = newTime;
-		currentTime = newTime;
-	}
-
-	function handleVolumeChange(event: Event) {
-		if (!audioElement) return;
-		const target = event.target as HTMLInputElement;
-		const newVolume = parseFloat(target.value) / 100;
-		volume = newVolume;
-		audioElement.volume = newVolume;
-		// Save to localStorage
-		if (typeof window !== 'undefined') {
-			localStorage.setItem('radio-volume', newVolume.toString());
-		}
-	}
-
-	function formatTime(seconds: number): string {
-		if (isNaN(seconds)) return '0:00';
-		const mins = Math.floor(seconds / 60);
-		const secs = Math.floor(seconds % 60);
-		return `${mins}:${secs.toString().padStart(2, '0')}`;
-	}
-
-	// Event handlers for pause and end - customize these as needed
-	function handleTrackPause() {
-		console.log('Track paused at', currentTime);
-		// Add your pause handling logic here
-	}
-
-	function handleTrackEnded() {
-		console.log('Track ended');
-		// Only auto-advance if user is active
-		if (isUserActive) {
-			handleAdvanceTrack();
-		} else {
-			console.log('User inactive, skipping auto-advance');
-		}
-		// Add your end handling logic here
-	}
-
-	function handleTrackPlay() {
-		console.log('Track playing');
-		// Add your play handling logic here
-	}
-
-	async function handleAdvanceTrack() {
-		await fetch('/api/room/advance', { method: 'POST' });
-	}
-
-	// Update room prompt with debouncing
-	async function updateRoomPrompt() {
-		if (!pb || !roomId) return;
-
-		// Clear existing timeout
-		if (promptUpdateTimeout) {
-			clearTimeout(promptUpdateTimeout);
-		}
-
-		// Debounce the update
-		const currentPb = pb;
-		const currentRoomId = roomId;
-		const currentPrompt = generationPrompt;
-		promptUpdateTimeout = setTimeout(async () => {
-			if (!currentPb || !currentRoomId) return;
-			try {
-				isUpdatingPrompt = true;
-				await currentPb.collection('radio_rooms').update(currentRoomId, {
-					prompt: currentPrompt
-				});
-				// Reset flag after a short delay to allow subscription to process
-				setTimeout(() => {
-					isUpdatingPrompt = false;
-				}, 100);
-			} catch (err) {
-				console.error('Error updating room prompt:', err);
-				isUpdatingPrompt = false;
-			}
-		}, 500); // Wait 500ms after user stops typing
-	}
-
-	// Update room instrumental setting
-	async function updateRoomInstrumental() {
-		if (!pb || !roomId) return;
-
-		try {
-			isUpdatingInstrumental = true;
-			await pb.collection('radio_rooms').update(roomId, {
-				instrumental: instrumental
-			});
-			// Reset flag after a short delay to allow subscription to process
-			setTimeout(() => {
-				isUpdatingInstrumental = false;
-			}, 100);
-		} catch (err) {
-			console.error('Error updating room instrumental:', err);
-			isUpdatingInstrumental = false;
-		}
-	}
-
-	async function handleLogout() {
-		try {
-			await fetch('/api/auth/logout', { method: 'POST' });
-			await goto('/login');
-		} catch (err) {
-			console.error('Logout error:', err);
-		}
-	}
 </script>
 
 <div
-	class="h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4 py-12 sm:px-6 lg:px-8"
+	class="min-h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4 py-12 sm:px-6 lg:px-8"
 >
 	<div class="mx-auto max-w-7xl">
-		<div class="order-1 h-fit lg:order-2 lg:col-span-2">
-			<div
-				class="flex h-full flex-col rounded-2xl border border-white/20 bg-white/10 p-8 shadow-2xl backdrop-blur-lg"
-			>
-				<!-- Header -->
-				<div class="mb-8 flex items-center justify-between">
-					<div>
-						<h1 class="mb-2 text-4xl font-bold text-white">Surgo Radio</h1>
-						<p class="text-gray-300">Now Playing</p>
-					</div>
+		<div class="flex flex-col items-center justify-center text-center">
+			<div class="mb-8 sm:mb-12">
+				<h1
+					class="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-4xl font-extrabold text-transparent sm:text-7xl"
+				>
+					Lofi Radio
+				</h1>
+				<p class="mt-2 text-lg text-gray-400 sm:mt-4 sm:text-xl">
+					Chill beats for focus and relaxation
+				</p>
+			</div>
+
+			{#if tracks.length === 0}
+				<div></div>
+			{:else}
+				<div class="relative mb-8 sm:mb-16">
+					<!-- Pulsing glow effect behind the play button -->
+					{#if !isRadioActive || !$isPlaying}
+						<div
+							class="absolute top-1/2 left-1/2 -z-10 h-32 w-32 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full bg-purple-500/20 blur-xl"
+						></div>
+					{/if}
+
+					<button
+						onclick={toggleRadio}
+						class="group relative flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-purple-600 to-pink-600 shadow-2xl transition-all hover:scale-105 hover:shadow-purple-500/50 active:scale-95"
+					>
+						{#if isRadioActive && $isPlaying}
+							<i class="ri-pause-fill text-5xl text-white"></i>
+						{:else}
+							<i class="ri-play-fill ml-1 text-5xl text-white"></i>
+						{/if}
+					</button>
 				</div>
 
-				{#if track}
-					<!-- Track Info -->
-					<div class="mb-8 flex flex-col gap-6 md:flex-row">
-						{#if track.image_url}
-							<img
-								src={track.image_url}
-								alt={track.title}
-								class="h-64 w-full rounded-lg object-cover shadow-lg md:w-64"
-							/>
-						{:else}
-							<div
-								class="flex h-64 w-full items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-pink-600 shadow-lg md:w-64"
-							>
-								<i class="ri-music-2-line text-6xl text-white/50"></i>
-							</div>
-						{/if}
+				<!-- Now Playing / Up Next Section -->
+				{#if isRadioActive && $currentTrack}
+					<div class="w-full max-w-4xl">
+						<div
+							class="overflow-hidden rounded-3xl border border-white/10 bg-white/5 shadow-2xl backdrop-blur-md"
+						>
+							<div class="grid grid-cols-1 gap-6 p-4 sm:gap-8 sm:p-8 md:grid-cols-2">
+								<!-- Now Playing Art -->
+								<div class="flex flex-col items-center justify-center">
+									<div
+										class="relative aspect-square w-full max-w-sm overflow-hidden rounded-2xl shadow-2xl"
+									>
+										{#if $currentTrack.image_url}
+											<img
+												src={$currentTrack.image_url}
+												alt={$currentTrack.title}
+												class="h-full w-full object-cover"
+											/>
+										{:else}
+											<div
+												class="flex h-full w-full items-center justify-center bg-gradient-to-br from-purple-900 to-slate-900"
+											>
+												<i class="ri-music-2-line text-6xl text-white/20"></i>
+											</div>
+										{/if}
 
-						<div class="flex-1">
-							<h2 class="mb-2 text-3xl font-bold text-white">{track.title}</h2>
-							{#if track.tags}
-								<p class="mb-2 text-gray-300">Tags: {track.tags}</p>
-							{/if}
-							{#if track.model_name}
-								<p class="mb-2 text-sm text-gray-400">Model: {track.model_name}</p>
-							{/if}
-							{#if track.prompt}
-								<p class="mt-4 line-clamp-3 text-sm text-gray-300">{track.prompt}</p>
-							{/if}
-							{#if track.create_time}
-								<p class="mt-4 text-xs text-gray-400">Created: {track.create_time}</p>
-							{/if}
-						</div>
-					</div>
-
-					<!-- Next Track Status -->
-					<div class="mb-6 rounded-lg border border-white/10 bg-white/5 p-4">
-						<div class="flex items-center justify-between">
-							<div class="flex-1">
-								<h3 class="mb-2 text-sm font-semibold tracking-wide text-gray-400 uppercase">
-									Next Track Status
-								</h3>
-								{#if nextTrack}
-									<div class="flex items-center gap-3">
-										<div class="flex h-3 w-3 items-center justify-center">
-											<div class="h-2 w-2 rounded-full bg-green-500"></div>
-										</div>
-										<div class="flex-1">
-											<p class="font-semibold text-white">{nextTrack.title}</p>
-											<p class="text-sm text-gray-400">Ready to play</p>
-										</div>
+										<!-- Visualizer Overlay -->
+										{#if $isPlaying}
+											<div
+												class="absolute inset-0 flex hidden items-center justify-center gap-2 bg-black/40 backdrop-blur-[2px]"
+											>
+												<div class="flex h-[50%] flex-row items-center justify-center gap-2">
+													<div
+														class="h-12 w-3 animate-[music-bar_1s_ease-in-out_infinite] rounded-full bg-white"
+													></div>
+													<div
+														class="h-20 w-3 animate-[music-bar_1.2s_ease-in-out_infinite] rounded-full bg-white"
+													></div>
+													<div
+														class="h-16 w-3 animate-[music-bar_0.8s_ease-in-out_infinite] rounded-full bg-white"
+													></div>
+													<div
+														class="h-10 w-3 animate-[music-bar_1.1s_ease-in-out_infinite] rounded-full bg-white"
+													></div>
+												</div>
+											</div>
+										{/if}
 									</div>
-								{:else if activeRequest}
-									<div class="flex items-center gap-3">
-										<div class="flex h-3 w-3 items-center justify-center">
-											<i class="ri-loader-4-line h-3 w-3 animate-spin text-yellow-500"></i>
-										</div>
-										<div class="flex-1">
-											<p class="font-semibold text-white">Generating next track...</p>
-											<p class="text-sm text-gray-400">Please wait</p>
-										</div>
+									<div class="mt-6 text-center">
+										<h2 class="text-2xl font-bold text-white">{$currentTrack.title}</h2>
+										<p class="text-purple-300">{$currentTrack.tags || 'Lofi Vibes'}</p>
 									</div>
-								{:else}
-									<div class="flex items-center gap-3">
-										<div class="flex h-3 w-3 items-center justify-center">
-											<div class="h-2 w-2 rounded-full bg-gray-500"></div>
-										</div>
-										<div class="flex-1">
-											<p class="font-semibold text-white">No next track</p>
-											<p class="text-sm text-gray-400">Waiting for generation</p>
-										</div>
+								</div>
+
+								<!-- Up Next List -->
+								<div class="flex flex-col">
+									<h3 class="mb-3 text-lg font-bold text-white sm:mb-4">Up Next</h3>
+									<div
+										class="custom-scrollbar -mr-2 max-h-[300px] flex-1 overflow-y-auto pr-2 sm:-mr-4 sm:max-h-[400px] sm:pr-4"
+									>
+										<!-- Show next 10 songs from the queue -->
+										{#each $queue.slice($queue.findIndex((t) => t.id === $currentTrack.id) + 1, $queue.findIndex((t) => t.id === $currentTrack.id) + 11) as track}
+											<div
+												class="mb-3 flex items-center gap-4 rounded-xl bg-white/5 p-3 transition-colors hover:bg-white/10"
+											>
+												<div class="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg bg-gray-800">
+													{#if track.image_url}
+														<img
+															src={track.image_url}
+															alt={track.title}
+															class="h-full w-full object-cover"
+														/>
+													{:else}
+														<div class="flex h-full w-full items-center justify-center">
+															<i class="ri-music-2-line text-gray-500"></i>
+														</div>
+													{/if}
+												</div>
+												<div class="min-w-0 flex-1 text-left">
+													<h4 class="truncate font-medium text-white">{track.title}</h4>
+													<p class="truncate text-xs text-gray-400">{track.tags || 'Unknown'}</p>
+												</div>
+											</div>
+										{/each}
+										{#if $queue.findIndex((t) => t.id === $currentTrack.id) + 11 < $queue.length}
+											<p class="text-center text-sm text-gray-500">...and more</p>
+										{/if}
 									</div>
-								{/if}
-							</div>
-							{#if nextTrack}
-								<button
-									onclick={handleAdvanceTrack}
-									class="cursor-pointer rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:from-purple-700 hover:to-pink-700 focus:ring-2 focus:ring-purple-500 focus:outline-none"
-								>
-									Skip
-								</button>
-							{/if}
-						</div>
-					</div>
-
-					<!-- Audio Player -->
-					<div class="space-y-4">
-						<!-- Progress Bar -->
-						<div class="space-y-2">
-							<input
-								type="range"
-								min="0"
-								max="100"
-								value={duration > 0 ? (currentTime / duration) * 100 : 0}
-								oninput={handleSeek}
-								class="h-2 w-full cursor-pointer appearance-none rounded-lg bg-white/20 accent-purple-600"
-							/>
-							<div class="flex justify-between text-xs text-gray-400">
-								<span>{formatTime(currentTime)}</span>
-								<span>{formatTime(duration)}</span>
-							</div>
-						</div>
-
-						<!-- Controls -->
-						<div class="flex items-center justify-center space-x-6">
-							<!-- Play/Pause Button -->
-							<button
-								onclick={togglePlay}
-								disabled={isLoading}
-								class="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg transition-all duration-200 hover:from-purple-700 hover:to-pink-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-slate-900 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-							>
-								{#if isLoading}
-									<i class="ri-loader-4-line animate-spin text-3xl"></i>
-								{:else if radioIsPlaying}
-									<i class="ri-pause-fill text-3xl"></i>
-								{:else}
-									<i class="ri-play-fill ml-1 text-3xl"></i>
-								{/if}
-							</button>
-
-							<!-- Volume Control -->
-							<div class="flex items-center space-x-2">
-								<i class="ri-volume-up-line text-2xl text-gray-300"></i>
-								<input
-									type="range"
-									min="0"
-									max="100"
-									value={volume * 100}
-									oninput={handleVolumeChange}
-									class="h-2 w-24 cursor-pointer appearance-none rounded-lg bg-white/20 accent-purple-600"
-								/>
+								</div>
 							</div>
 						</div>
 					</div>
 				{/if}
-
-				{#if disableGenerate}
-					<!-- Replay Mode Message -->
-					<div class="mt-8 rounded-lg border border-white/20 bg-white/5 p-6">
-						<div class="flex items-center gap-3">
-							<i class="ri-refresh-line text-2xl text-purple-400"></i>
-							<div>
-								<h2 class="text-xl font-bold text-white">Replay Mode</h2>
-								<p class="mt-1 text-sm text-gray-300">
-									New song generation is currently disabled. The radio is playing lofi tracks from
-									the library.
-								</p>
-							</div>
-						</div>
-					</div>
-				{:else}
-					<!-- Generation Prompt Box -->
-					<div class="mt-8 rounded-lg border border-white/20 bg-white/5 p-6">
-						<h2 class="mb-4 text-2xl font-bold text-white">Generation Prompt</h2>
-						<div class="space-y-4">
-							<div>
-								<label for="prompt" class="mb-2 block text-sm font-medium text-gray-300">
-									Enter a prompt for the next generated song
-								</label>
-								<p class="mb-3 text-xs text-gray-400">
-									This prompt will be used when generating the next new song. If there's already a
-									song queued up, this will apply to the song generated after that.
-								</p>
-								<textarea
-									id="prompt"
-									bind:value={generationPrompt}
-									oninput={updateRoomPrompt}
-									placeholder="e.g., A upbeat electronic dance track with catchy melodies..."
-									rows="3"
-									maxlength="500"
-									class="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-500 focus:outline-none"
-								></textarea>
-								<p class="mt-1 text-xs text-gray-400">
-									{generationPrompt.length}/500 characters
-								</p>
-							</div>
-
-							<div class="flex items-center gap-3">
-								<label class="flex cursor-pointer items-center gap-2">
-									<input
-										type="checkbox"
-										bind:checked={instrumental}
-										onchange={updateRoomInstrumental}
-										class="h-5 w-5 cursor-pointer rounded border-white/20 bg-white/10 text-purple-600 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0"
-									/>
-									<span class="text-sm font-medium text-gray-300">Instrumental</span>
-								</label>
-							</div>
-						</div>
-					</div>
-				{/if}
-			</div>
+			{/if}
 		</div>
 	</div>
 </div>
 
-<style>
-	.songs-scrollable::-webkit-scrollbar {
-		width: 8px;
-	}
+<style lang="postcss">
+	@reference "$lib/../app.css";
 
-	.songs-scrollable::-webkit-scrollbar-track {
-		background: rgba(255, 255, 255, 0.05);
-		border-radius: 4px;
-	}
-
-	.songs-scrollable::-webkit-scrollbar-thumb {
-		background: linear-gradient(to bottom, rgba(147, 51, 234, 0.6), rgba(219, 39, 119, 0.6));
-		border-radius: 4px;
-	}
-
-	.songs-scrollable::-webkit-scrollbar-thumb:hover {
-		background: linear-gradient(to bottom, rgba(147, 51, 234, 0.8), rgba(219, 39, 119, 0.8));
-	}
-
-	/* Firefox scrollbar */
-	.songs-scrollable {
-		scrollbar-width: thin;
-		scrollbar-color: rgba(147, 51, 234, 0.6) rgba(255, 255, 255, 0.05);
+	@keyframes music-bar {
+		0%,
+		100% {
+			height: 1rem;
+		}
+		50% {
+			height: 3rem;
+		}
 	}
 </style>
