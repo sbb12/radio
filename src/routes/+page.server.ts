@@ -11,7 +11,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// But the user specifically asked for "lofi" songs.
 		tracks = await pb.collection('radio_music_tracks').getFullList({
 			sort: '-created',
-			filter: 'generation_prompt ~ "lofi" && generation_prompt ~ "christmas"'
+			filter: 'generation_prompt ~ "lofi" && generation_prompt ~ "christmas" && deleted = false'
 		});
 
 		// If no lofi tracks found, maybe fallback to all tracks? 
