@@ -5,6 +5,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
+	import PocketBase from 'pocketbase';
 
 	let {
 		tracks = [],
@@ -45,6 +46,18 @@
 		navigator.clipboard.writeText(url).then(() => {
 			toasts.add('Track link copied!', 'success');
 		});
+	}
+
+	function downloadTrack(track: any) {
+		if (track) {
+			const pb = new PocketBase('https://pb.sercan.co.uk');
+			const url = pb.files.getURL(track, track.audio);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = track.title + '.mp3';
+			link.rel = 'external';
+			link.click();
+		}
 	}
 </script>
 
@@ -122,7 +135,7 @@
 							<span>{formatDate(track.create_time || track.created)}</span>
 							{#if track.tags}
 								<span>•</span>
-								<span class="max-w-[200px] truncate">{track.tags}</span>
+								<span class="truncate">{track.tags}</span>
 							{/if}
 						</div>
 					</div>
@@ -206,16 +219,6 @@
 						>
 							<i class="ri-external-link-line"></i>
 						</button>
-
-						<a
-							href={track.audio_url}
-							download
-							class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-white/20 hover:text-white"
-							title="Download"
-							onclick={(e) => e.stopPropagation()}
-						>
-							<i class="ri-download-line"></i>
-						</a>
 
 						{#if playlistMode}
 							<form action="?/removeFromPlaylist" method="POST" use:enhance>

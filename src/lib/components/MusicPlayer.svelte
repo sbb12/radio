@@ -163,35 +163,49 @@
 			source.connect(analyser);
 			analyser.connect(audioContext.destination);
 
-			analyser.fftSize = 128;
+			// Keep this fairly small so we don't get tons of skinny bars
+			analyser.fftSize = 128; // -> frequencyBinCount = 64
+			analyser.smoothingTimeConstant = 0.75;
+
 			const bufferLength = analyser.frequencyBinCount;
 			const dataArray = new Uint8Array(bufferLength);
 
 			const ctx = cvs.getContext('2d');
 			if (!ctx) return;
 
+			// If your canvas is 400px wide in CSS, you can hard-set this,
+			// or use cvs.clientWidth if you're styling it via CSS.
+			const width = cvs.width;
+			const height = cvs.height;
+
+			// Use fewer bars so they are nice and chunky on a 400px canvas
+			const barCount = Math.min(32, bufferLength);
+			const gap = 2; // px gap between bars
+			const barWidth = (width - gap * (barCount - 1)) / barCount;
+
+			let animationId: number;
+
 			const draw = () => {
 				animationId = requestAnimationFrame(draw);
 
 				analyser.getByteFrequencyData(dataArray);
 
-				ctx.clearRect(0, 0, cvs.width, cvs.height);
+				ctx.clearRect(0, 0, width, height);
 
-				const barWidth = (cvs.width / bufferLength) * 2.5;
-				let barHeight;
+				// Single gradient for all bars (same vibe as your original)
+				const gradient = ctx.createLinearGradient(0, height, 0, 0);
+				gradient.addColorStop(0, 'rgba(168, 85, 247, 0.8)');
+				gradient.addColorStop(1, 'rgba(236, 72, 153, 0.8)');
+				ctx.fillStyle = gradient;
+
 				let x = 0;
 
-				for (let i = 0; i < bufferLength; i++) {
-					barHeight = (dataArray[i] / 255) * cvs.height;
+				for (let i = 0; i < barCount; i++) {
+					const value = dataArray[i] / 255;
+					const barHeight = value * height;
 
-					const gradient = ctx.createLinearGradient(0, cvs.height, 0, 0);
-					gradient.addColorStop(0, 'rgba(168, 85, 247, 0.8)');
-					gradient.addColorStop(1, 'rgba(236, 72, 153, 0.8)');
-
-					ctx.fillStyle = gradient;
-					ctx.fillRect(x, cvs.height - barHeight, barWidth - 2, barHeight);
-
-					x += barWidth;
+					ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+					x += barWidth + gap;
 				}
 			};
 
@@ -527,8 +541,7 @@
 				</div>
 
 				<!-- Visualizer -->
-				<canvas bind:this={canvas} width="400" height="20" class="w-full max-w-md opacity-80"
-				></canvas>
+				<canvas bind:this={canvas} class="h-5 w-full max-w-md opacity-80"></canvas>
 
 				<!-- Progress Bar -->
 				<div class="flex w-full max-w-md items-center gap-2 text-xs text-gray-400">
