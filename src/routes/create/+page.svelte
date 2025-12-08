@@ -70,6 +70,9 @@
 
 		// Subscribe to tracks collection
 		pb.collection('radio_music_tracks').subscribe('*', function (e) {
+			// Only handle events for the current user's tracks
+			if (data.user && e.record.user !== data.user.id) return;
+
 			if (e.action === 'create') {
 				// Add new track to the top of the list
 				const newTrack = {
@@ -101,6 +104,8 @@
 
 		// Subscribe to playlists collection
 		pb.collection('radio_playlists').subscribe('*', function (e) {
+			if (data.user && e.record.user !== data.user.id) return;
+
 			if (e.action === 'create') {
 				addPlaylistToStore(e.record);
 			} else if (e.action === 'update') {
