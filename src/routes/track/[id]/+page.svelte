@@ -1,0 +1,171 @@
+<script lang="ts">
+	import { currentTrack, isPlaying, queue } from '$lib/stores';
+	import { userReactions, toggleReaction } from '$lib/stores/trackActions';
+	import { toasts } from '$lib/stores/toast';
+	import { getPocketBase } from '$lib/pocketbase';
+	import { onMount } from 'svelte';
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
+	let track = $derived(data.track);
+
+	let pb: any;
+
+	onMount(async () => {
+		pb = await getPocketBase();
+		// Sync reactions
+		if (data.userReactions) {
+			userReactions.update((current) => ({
+				...current,
+				...(data.userReactions as Record<string, 'like' | 'dislike'>)
+			}));
+		}
+	});
+
+	function playTrack() {
+		currentTrack.set(track);
+		isPlaying.set(true);
+		queue.set([track]);
+	}
+
+	function downloadTrack() {
+		if (track && pb) {
+			const url = pb.files.getURL(track, track.audio);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = track.title + '.mp3';
+			link.rel = 'external';
+			link.click();
+		}
+	}
+
+	function copyLink() {
+		const url = window.location.href;
+		navigator.clipboard.writeText(url).then(() => {
+			toasts.add('Link copied to clipboard!', 'success');
+		});
+	}
+</script>
+
+<div class="container mx-auto max-w-2xl p-6 pb-32">
+	<div class="flex flex-col gap-6">
+		<!-- Header with Share -->
+		<div class="flex items-center justify-between">
+			<h1 class="text-3xl font-bold text-white">Track Details</h1>
+			<button
+				class="flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-white transition-colors hover:bg-white/20"
+				onclick={copyLink}
+			>
+				<i class="ri-share-line"></i>
+				Share
+			</button>
+		</div>
+
+		<!-- Large Image with Play Overlay -->
+		<div
+			class="group relative mx-auto w-full max-w-md overflow-hidden rounded-xl bg-gray-800 shadow-2xl"
+		>
+			{#if track.image_url}
+				<img src={track.image_url} alt={track.title} class="aspect-square w-full object-cover" />
+			{:else}
+				<div class="flex aspect-square w-full items-center justify-center bg-gray-700">
+					<i class="ri-music-fill text-9xl text-gray-500"></i>
+				</div>
+			{/if}
+
+			<!-- Play Overlay -->
+			<div
+				class="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
+			>
+				<button
+					class="flex h-20 w-20 items-center justify-center rounded-full bg-white text-purple-900 shadow-lg transition-transform hover:scale-105"
+					onclick={playTrack}
+					aria-label="Play Track"
+				>
+					<i class="ri-play-fill ml-1 text-4xl"></i>
+				</button>
+			</div>
+		</div>
+
+		<!-- Title & Info -->
+		<div class="text-center">
+			<h2 class="text-3xl font-bold text-white">{track.title}</h2>
+			<div class="mt-4 flex flex-wrap justify-center gap-2">
+				<span class="rounded bg-purple-500/20 px-3 py-1 text-sm text-purple-300">
+					{track.model_name === 'chirp-crow' ? 'V5' : track.model_name || 'Unknown Model'}
+				</span>
+				{#if track.tags}
+					<span class="rounded bg-white/10 px-3 py-1 text-sm text-gray-400">
+						{track.tags}
+					</span>
+				{/if}
+				<span class="rounded bg-white/10 px-3 py-1 text-sm text-gray-400">
+					{new Date(track.created).toLocaleDateString()}
+				</span>
+			</div>
+		</div>
+
+		<!-- Actions (Like/Dislike) -->
+		<div class="flex justify-center gap-4">
+			<button
+				class="flex items-center gap-2 rounded-full bg-white/5 px-6 py-2 transition-all {$userReactions[
+					track.id
+				] === 'like'
+					? 'bg-green-500/20 text-green-400'
+					: 'text-gray-400 hover:bg-white/10 hover:text-green-400'}"
+				onclick={() => toggleReaction(track.id, 'like')}
+			>
+				<i class={$userReactions[track.id] === 'like' ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'}
+				></i>
+				Like
+			</button>
+			<button
+				class="flex items-center gap-2 rounded-full bg-white/5 px-6 py-2 transition-all {$userReactions[
+					track.id
+				] === 'dislike'
+					? 'bg-red-500/20 text-red-400'
+					: 'text-gray-400 hover:bg-white/10 hover:text-red-400'}"
+				onclick={() => toggleReaction(track.id, 'dislike')}
+			>
+				<i
+					class={$userReactions[track.id] === 'dislike'
+						? 'ri-thumb-down-fill'
+						: 'ri-thumb-down-line'}
+				></i>
+				Dislike
+			</button>
+		</div>
+
+		<!-- Prompts -->
+		{#if track.generation_prompt}
+			<div class="rounded-xl bg-white/5 p-6">
+				<h4 class="mb-3 text-sm font-medium tracking-wider text-gray-400 uppercase">
+					Generation Prompt
+				</h4>
+				<p class="text-base leading-relaxed whitespace-pre-wrap text-gray-200">
+					{track.generation_prompt}
+				</p>
+			</div>
+		{/if}
+
+		{#if track.prompt}
+			<div class="rounded-xl bg-white/5 p-6">
+				<h4 class="mb-3 text-sm font-medium tracking-wider text-gray-400 uppercase">
+					Prompt / Lyrics
+				</h4>
+				<p class="text-base leading-relaxed whitespace-pre-wrap text-gray-200">
+					{track.prompt}
+				</p>
+			</div>
+		{/if}
+
+		<!-- Download -->
+		<button
+			class="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 py-4 font-bold text-white shadow-lg transition-colors hover:bg-purple-700"
+			onclick={downloadTrack}
+		>
+			<i class="ri-download-line text-xl"></i>
+			Download MP3
+		</button>
+	</div>
+</div>

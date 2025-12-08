@@ -12,6 +12,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { playlists } from '$lib/stores/playlists';
 	import { removeFromPlaylist } from '$lib/stores/trackActions';
+	import { goto } from '$app/navigation';
 
 	let audio = $state<HTMLAudioElement>();
 	let pb: PocketBase;
@@ -65,7 +66,7 @@
 
 	function playNext() {
 		if (!trackQueue.length || !track) return;
-		const currentIndex = trackQueue.findIndex((t) => t.id === track.id);
+		const currentIndex = trackQueue.findIndex((t) => t.id === track!.id);
 		if (currentIndex !== -1 && currentIndex < trackQueue.length - 1) {
 			currentTrack.set(trackQueue[currentIndex + 1]);
 			isPlaying.set(true);
@@ -74,7 +75,7 @@
 
 	function playPrevious() {
 		if (!trackQueue.length || !track) return;
-		const currentIndex = trackQueue.findIndex((t) => t.id === track.id);
+		const currentIndex = trackQueue.findIndex((t) => t.id === track!.id);
 		if (currentIndex !== -1 && currentIndex > 0) {
 			currentTrack.set(trackQueue[currentIndex - 1]);
 			isPlaying.set(true);
@@ -290,6 +291,14 @@
 		const shuffled = [...trackQueue].sort(() => Math.random() - 0.5);
 		queue.set(shuffled);
 	}
+
+	function copyTrackLink() {
+		if (!track) return;
+		const url = `${window.location.origin}/track/${track.id}`;
+		navigator.clipboard.writeText(url).then(() => {
+			toasts.add('Track link copied!', 'success');
+		});
+	}
 </script>
 
 {#if track}
@@ -445,9 +454,10 @@
 							? 'text-green-400'
 							: 'text-gray-400 hover:text-green-400'}"
 						title="Like"
-						onclick={() => toggleReaction(track.id, 'like')}
+						onclick={() => toggleReaction(track!.id, 'like')}
 					>
-						<i class={$userReactions[track.id] === 'like' ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'}
+						<i
+							class={$userReactions[track!.id] === 'like' ? 'ri-thumb-up-fill' : 'ri-thumb-up-line'}
 						></i>
 					</button>
 					<button
@@ -455,10 +465,10 @@
 							? 'text-red-400'
 							: 'text-gray-400 hover:text-red-400'}"
 						title="Dislike"
-						onclick={() => toggleReaction(track.id, 'dislike')}
+						onclick={() => toggleReaction(track!.id, 'dislike')}
 					>
 						<i
-							class={$userReactions[track.id] === 'dislike'
+							class={$userReactions[track!.id] === 'dislike'
 								? 'ri-thumb-down-fill'
 								: 'ri-thumb-down-line'}
 						></i>
@@ -611,12 +621,21 @@
 				>
 					<i class="ri-download-line text-lg"></i>
 				</button>
+
 				<button
-					onclick={closePlayer}
-					class="cursor-pointer text-gray-400 transition-colors hover:text-red-400"
-					title="Close"
+					onclick={copyTrackLink}
+					class="cursor-pointer text-gray-400 transition-colors hover:text-white"
+					title="Copy Link"
 				>
-					<i class="ri-close-line text-xl"></i>
+					<i class="ri-share-line text-lg"></i>
+				</button>
+
+				<button
+					class="flex cursor-pointer items-center justify-center text-gray-400 transition-colors hover:text-white"
+					title="View Track Page"
+					onclick={() => goto(`/track/${track!.id}`)}
+				>
+					<i class="ri-external-link-line text-lg"></i>
 				</button>
 			</div>
 		</div>

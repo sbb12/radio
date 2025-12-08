@@ -2,7 +2,9 @@
 	import { currentTrack, isPlaying, queue } from '$lib/stores';
 	import { userReactions, toggleReaction } from '$lib/stores/trackActions';
 	import { playlists } from '$lib/stores/playlists';
+	import { toasts } from '$lib/stores/toast';
 	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
 
 	let {
 		tracks = [],
@@ -36,6 +38,13 @@
 		} catch {
 			return dateString;
 		}
+	}
+
+	function copyTrackLink(track: any) {
+		const url = `${window.location.origin}/track/${track.id}`;
+		navigator.clipboard.writeText(url).then(() => {
+			toasts.add('Track link copied!', 'success');
+		});
 	}
 </script>
 
@@ -175,6 +184,28 @@
 								></i>
 							</button>
 						{/if}
+
+						<button
+							class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-white/20 hover:text-white"
+							title="Copy Link"
+							onclick={(e) => {
+								e.stopPropagation();
+								copyTrackLink(track);
+							}}
+						>
+							<i class="ri-share-line"></i>
+						</button>
+
+						<button
+							class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-white/20 hover:text-white"
+							title="View Track Page"
+							onclick={(e) => {
+								e.stopPropagation();
+								goto(`/track/${track.id}`);
+							}}
+						>
+							<i class="ri-external-link-line"></i>
+						</button>
 
 						<a
 							href={track.audio_url}

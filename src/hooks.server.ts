@@ -52,28 +52,41 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 			} catch (error) {
 				console.error('Auth refresh error:', error);
 				event.cookies.delete('token', { path: '/' });
-				throw redirect(302, '/login');
+				// Only redirect if it's a protected route
+				const isPublicRoute = event.url.pathname === '/' || event.url.pathname.startsWith('/track');
+				if (!isPublicRoute) {
+					throw redirect(302, '/login');
+				}
 			}
 		}
 
 		// Verify token is valid
-		if (!pb.authStore.isValid || !pb.authStore.model) {
-			// Invalid token, clear cookie and redirect
+		if (pb.authStore.isValid && pb.authStore.model) {
+			// Token is valid, attach user to event locals
+			event.locals.pb = pb;
+			event.locals.user = pb.authStore.model;
+		} else {
+			// Invalid or no token
 			event.cookies.delete('token', { path: '/' });
-			throw redirect(302, '/login');
+
+			const isPublicRoute = event.url.pathname === '/' || event.url.pathname.startsWith('/track');
+			if (!isPublicRoute) {
+				throw redirect(302, '/login');
+			}
 		}
 
-		// Token is valid, attach user to event locals
-		event.locals.pb = pb;
-		event.locals.user = pb.authStore.model;
 	} catch (error) {
 		// If it's a redirect, re-throw it
 		if (error instanceof Response && error.status >= 300 && error.status < 400) {
 			throw error;
 		}
 		console.error('Auth validation error:', error);
-		event.cookies.delete('token', { path: '/' });
-		throw redirect(302, '/login');
+
+		const isPublicRoute = event.url.pathname === '/' || event.url.pathname.startsWith('/track');
+		if (!isPublicRoute) {
+			event.cookies.delete('token', { path: '/' });
+			throw redirect(302, '/login');
+		}
 	}
 
 	return resolve(event);
