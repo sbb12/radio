@@ -3,7 +3,7 @@ import PocketBase from 'pocketbase';
 let pb: PocketBase | null = null;
 let authPromise: Promise<void> | null = null;
 
-export async function getPocketBase(): Promise<PocketBase> {
+export async function getPocketBase(token?: string): Promise<PocketBase> {
 	const pb = new PocketBase("https://pb.sercan.co.uk");
 	return pb
 }

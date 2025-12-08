@@ -7,7 +7,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     const { id } = params;
 
     try {
-        const track = await pb.collection('radio_music_tracks').getOne(id);
+        const track = await pb.collection('radio_music_tracks').getOne(id, {
+            expand: 'user'
+        });
 
         let userReactions: Record<string, string> = {};
 

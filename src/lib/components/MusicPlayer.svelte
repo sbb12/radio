@@ -183,8 +183,6 @@
 			const gap = 2; // px gap between bars
 			const barWidth = (width - gap * (barCount - 1)) / barCount;
 
-			let animationId: number;
-
 			const draw = () => {
 				animationId = requestAnimationFrame(draw);
 
