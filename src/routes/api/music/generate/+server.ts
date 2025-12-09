@@ -86,7 +86,9 @@ You are a music expert.
 Your task is to take a simple song description and convert it into parameters for a music generation AI.
 
 The lyrics should not be overly cliche, or generic.  the lyrics should also not reference the style of the music.
+
 The lyrics, style and title must not contain any copyrighted material or the names of artists, songs, albums, or other copyrighted works.
+if an artist is mentioned, that should influence the style and lyrics.
 
 Return ONLY a JSON object with the following fields:
 
