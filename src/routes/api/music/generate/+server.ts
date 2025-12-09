@@ -59,7 +59,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 
 	// Handle Enhancement if requested
-	if (body.enhance && !body.customMode && body.promp && !body.instrumental) {
+	if (body.enhance && !body.customMode && body.prompt && !body.instrumental) {
 		if (!AI_GATEWAY_API_KEY) {
 			return json({ error: 'Enhance feature is not available (Missing API Key)' }, { status: 503 });
 		}
