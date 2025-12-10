@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import 'remixicon/fonts/remixicon.css';
 	import { currentTrack, isPlaying, queue } from '$lib/stores';
+	import { get } from 'svelte/store';
 	import { addToPlaylist, removeFromPlaylist } from '$lib/stores/trackActions';
 	import {
 		playlists,
@@ -80,6 +81,11 @@
 					title: e.record.title || 'Untitled'
 				};
 				tracks = [newTrack, ...tracks];
+
+				// Add to front of queue
+				const currentQ = get(queue);
+				queue.set([newTrack, ...currentQ]);
+
 				// Remove placeholder if it exists
 				generatingPlaceholder = null;
 			} else if (e.action === 'update') {
