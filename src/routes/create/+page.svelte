@@ -69,6 +69,12 @@
 			instrumental = savedInstrumental === 'true';
 		}
 
+		// Load enhancePrompt from localStorage
+		const savedEnhancePrompt = localStorage.getItem('create_enhance_prompt');
+		if (savedEnhancePrompt) {
+			enhancePrompt = savedEnhancePrompt === 'true';
+		}
+
 		// Subscribe to tracks collection
 		pb.collection('radio_music_tracks').subscribe('*', function (e) {
 			// Only handle events for the current user's tracks
@@ -127,6 +133,7 @@
 			localStorage.setItem('create_prompt', prompt);
 		}
 		localStorage.setItem('create_instrumental', String(instrumental));
+		localStorage.setItem('create_enhance_prompt', String(enhancePrompt));
 	});
 
 	$effect(() => {
