@@ -21,46 +21,60 @@ export const POST: RequestHandler = async ({ request }) => {
             apiKey: AI_GATEWAY_API_KEY,
         });
 
-        const customPromptSchema = z.object({
-            title: z.string().max(100),
-            style: z.string().max(100),
-            prompt: z.string().max(5000),
-            vocalGender: z.enum(['m', 'f']).optional(),
+        const enhancedPromptSchema = z.object({
+            prompt: z.string().max(5000)
         });
 
         const result = await generateObject({
-            // model: gateway('openai/gpt-5.1'),
-            model: gateway('openai/gpt-5.1-thinking'),
-            schema: customPromptSchema,
+            model: gateway('openai/gpt-5.2-thinking'),
+            schema: enhancedPromptSchema,
+            temperature: 0.5,
             messages: [
                 {
                     role: 'system',
                     content: `
-You are a music expert. 
-Your task is to take a simple song description and convert it into parameters for a music generation AI.
+You are a music prompt formatter for Suno.
 
-The lyrics should not be overly cliche, or generic.  the lyrics should also not reference the style of the music.
+INPUT (from the user):
+- A short, casual descriptor string such as: pop, glitchy electro-pop banger with heavy bass
+- The input may include optional hints like: female vocals, male vocals, duet, instrumental, fast/slow, dark/uplifting, etc.
 
-Return ONLY a JSON object with the following fields:
+OUTPUT (what you must return):
+- Return ONLY a Suno prompt-style block (no explanations, no tips, no extra text).
+- Always include these lines at the very top, exactly as written:
+  [Is_MAX_MODE: MAX](MAX)
+  [QUALITY: MAX](MAX)
+  [REALISM: MAX](MAX)
+  [REAL_INSTRUMENTS: MAX](MAX)
 
-- "prompt": Full lyrics or song structure with section tags like [Intro], [Verse 1], [Pre-Chorus], [Chorus], [Bridge], [Outro].
-    - This field MUST contain only:
-        • section headers, descriptions of instruments, tempo, or mixing in square brackets
-        • lines of singable lyrics
-    - DO NOT include:
-        • production or arrangement notes
-        • comments, directions, or annotations like ">>" or "(guitars enter here)"
-        • anything that is not meant to be sung
-    - Max 5000 characters.
-    - Target a 3-4 minute song.
+- Then output exactly these fields in this order (one per line):
+  genre:
+  instruments:
+  vocals:
+  tempo & feel:
+  arrangement cues:
+  mix & production:
 
-- "style": Short description of genre and vibe ONLY. 
-    - No lyrics here.
-    - Max 100 characters.
+Formatting rules (critical):
+- Keep everything "metadata-ish": compact noun phrases, comma-separated.
+- Do NOT write full sentences. Do NOT include quotes around catchy phrases or anything chantable.
+- Do NOT include verse/chorus headings, brackets like [Verse], ALL CAPS slogans, or anything that looks like lyrics/poetry.
+- Do NOT include URLs.
+- Do NOT output any lyrics or placeholders for lyrics.
+- Avoid the words "start immediately" / "write lyrics" / "real instruments" / "ultra realism" in the fields.
+- Prefer specific audio/production terms over vague vibe words.
+- If the user mentions a specific artist/band, DO NOT name them; translate it into descriptive genre/era/production traits instead.
+- If the user doesn't specify vocals, choose the most likely option for the genre; otherwise follow their request.
+- Keep arrangement cues concise; no long intro by default unless the user asks.
 
-- "title": Short, catchy song title.
-    - No quotes.
-    - Max 100 characters.
+Optional control (only if user explicitly requests it):
+- If the user includes a clear start-on instruction like: start_on: first few words
+  then insert these two lines directly under the MAX lines (before genre:):
+  [START_ON: TRUE]
+  [START_ON: first few words]
+
+Goal:
+- Produce a high-quality, realistic, genre-appropriate Suno prompt that matches the user's descriptor while minimizing lyric/prompt bleed.
 `,
                 },
                 {

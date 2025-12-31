@@ -30,7 +30,24 @@
 	let pb: any;
 
 	onMount(async () => {
+		// Restore authentication from localStorage/cookie
 		pb = await getPocketBase();
+		
+		// If we have a token but no user data, try to refresh auth
+		if (!data.user && pb.authStore.isValid && pb.authStore.token) {
+			try {
+				await pb.collection('users').authRefresh();
+				// Invalidate to reload page data with user
+				await invalidateAll();
+			} catch (e) {
+				// Token is invalid, clear it
+				if (typeof window !== 'undefined') {
+					localStorage.removeItem('pb_token');
+				}
+				pb.authStore.clear();
+			}
+		}
+		
 		if (data.user) {
 			pb.collection('radio_playlists').subscribe('*', (e: any) => {
 				if (e.action === 'create') {

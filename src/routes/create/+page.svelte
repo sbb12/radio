@@ -49,31 +49,26 @@
 	let error = $state<string | null>(null);
 	let success = $state<string | null>(null);
 	let generatingPlaceholder = $state<any>(null);
+	let loadedFromStorage = $state(false);
 
 	// Available models
 	const models = ['V3_5', 'V4', 'V4_5', 'V4_5PLUS', 'V5'];
 	let pb: PocketBase;
 
 	onMount(async () => {
-		pb = await getPocketBase();
-
-		// Load prompt from localStorage
+		// Load settings from localStorage first
 		const savedPrompt = localStorage.getItem('create_prompt');
-		if (savedPrompt) {
-			prompt = savedPrompt;
-		}
+		if (savedPrompt) prompt = savedPrompt;
 
-		// Load instrumental from localStorage
 		const savedInstrumental = localStorage.getItem('create_instrumental');
-		if (savedInstrumental) {
-			instrumental = savedInstrumental === 'true';
-		}
+		if (savedInstrumental) instrumental = savedInstrumental === 'true';
 
-		// Load enhancePrompt from localStorage
 		const savedEnhancePrompt = localStorage.getItem('create_enhance_prompt');
-		if (savedEnhancePrompt) {
-			enhancePrompt = savedEnhancePrompt === 'true';
-		}
+		if (savedEnhancePrompt) enhancePrompt = savedEnhancePrompt === 'true';
+
+		loadedFromStorage = true;
+
+		pb = await getPocketBase();
 
 		// Subscribe to tracks collection
 		pb.collection('radio_music_tracks').subscribe('*', function (e) {
@@ -129,11 +124,13 @@
 	});
 
 	$effect(() => {
-		if (prompt) {
-			localStorage.setItem('create_prompt', prompt);
+		if (loadedFromStorage) {
+			if (prompt) {
+				localStorage.setItem('create_prompt', prompt);
+			}
+			localStorage.setItem('create_instrumental', String(instrumental));
+			localStorage.setItem('create_enhance_prompt', String(enhancePrompt));
 		}
-		localStorage.setItem('create_instrumental', String(instrumental));
-		localStorage.setItem('create_enhance_prompt', String(enhancePrompt));
 	});
 
 	$effect(() => {
@@ -374,11 +371,11 @@
 									required
 									placeholder="e.g., A upbeat electronic dance track with catchy melodies..."
 									rows="4"
-									maxlength="500"
+									maxlength="5000"
 									class="input-field"
 								></textarea>
 								<p class="mt-1 text-xs text-gray-400">
-									{prompt.length}/500 characters
+									{prompt.length}/5000 characters
 								</p>
 
 								<div class="mt-2" class:hidden={instrumental}>

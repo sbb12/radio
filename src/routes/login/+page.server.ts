@@ -1,9 +1,14 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals, cookies }) => {
+export const load: PageServerLoad = async ({ locals }) => {
 	// Redirect to user page if already authenticated
-	cookies.delete('token', { path: '/' });
+	if (locals.user) {
+		throw redirect(302, '/me');
+	}
 	return {};
 };
+
+
+
 

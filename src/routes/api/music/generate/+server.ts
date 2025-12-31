@@ -59,7 +59,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 
 	// Handle Enhancement if requested
-	if (body.enhance && !body.customMode && body.prompt && !body.instrumental) {
+	if (body.enhance && !body.customMode && body.prompt) {
 		if (!AI_GATEWAY_API_KEY) {
 			return json({ error: 'Enhance feature is not available (Missing API Key)' }, { status: 503 });
 		}
@@ -69,47 +69,60 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 				apiKey: AI_GATEWAY_API_KEY,
 			});
 
-			const customPromptSchema = z.object({
-				title: z.string().max(100),
-				style: z.string().max(100),
+			const enhancedPromptSchema = z.object({
 				prompt: z.string().max(5000),
 			});
 
 			const result = await generateObject({
-				model: gateway('openai/gpt-5.1-thinking'),
-				schema: customPromptSchema,
+				model: gateway('openai/gpt-5.2-thinking'),
+				schema: enhancedPromptSchema,
+				temperature: 0.5,
 				messages: [
 					{
 						role: 'system',
 						content: `
-You are a music expert. 
-Your task is to take a simple song description and convert it into parameters for a music generation AI.
+You are a music prompt formatter for Suno.
 
-The lyrics should not be overly cliche, or generic.  the lyrics should also not reference the style of the music.
+INPUT (from the user):
+- A short, casual descriptor string such as: pop, glitchy electro-pop banger with heavy bass
+- The input may include optional hints like: female vocals, male vocals, duet, instrumental, fast/slow, dark/uplifting, etc.
 
-The lyrics, style and title must not contain any copyrighted material or the names of artists, songs, albums, or other copyrighted works.
-if an artist is mentioned, that should influence the style and lyrics.
+OUTPUT (what you must return):
+- Return ONLY a Suno prompt-style block (no explanations, no tips, no extra text).
+- Always include these lines at the very top, exactly as written:
+  [Is_MAX_MODE: MAX](MAX)
+  [QUALITY: MAX](MAX)
+  [REALISM: MAX](MAX)
+  [REAL_INSTRUMENTS: MAX](MAX)
 
-Return ONLY a JSON object with the following fields:
+- Then output exactly these fields in this order (one per line):
+  genre:
+  instruments:
+  vocals:
+  tempo & feel:
+  arrangement cues:
+  mix & production:
 
-- "prompt": Full lyrics or song structure with section tags like [Intro], [Verse 1], [Pre-Chorus], [Chorus], [Bridge], [Outro].
-    - This field MUST contain only:
-        • section headers, descriptions of instruments, tempo, or mixing in square brackets
-        • lines of singable lyrics
-    - DO NOT include:
-        • production or arrangement notes
-        • comments, directions, or annotations like ">>" or "(guitars enter here)"
-        • anything that is not meant to be sung
-    - Max 5000 characters.
-    - Target a 3-4 minute song.
+Formatting rules (critical):
+- Keep everything "metadata-ish": compact noun phrases, comma-separated.
+- Do NOT write full sentences. Do NOT include quotes around catchy phrases or anything chantable.
+- Do NOT include verse/chorus headings, brackets like [Verse], ALL CAPS slogans, or anything that looks like lyrics/poetry.
+- Do NOT include URLs.
+- Do NOT output any lyrics or placeholders for lyrics.
+- Avoid the words "start immediately" / "write lyrics" / "real instruments" / "ultra realism" in the fields.
+- Prefer specific audio/production terms over vague vibe words.
+- If the user mentions a specific artist/band, DO NOT name them; translate it into descriptive genre/era/production traits instead.
+- If the user doesn't specify vocals, choose the most likely option for the genre; otherwise follow their request.
+- Keep arrangement cues concise; no long intro by default unless the user asks.
 
-- "style": Short description of genre and vibe ONLY. 
-    - No lyrics here.
-    - Max 100 characters.
+Optional control (only if user explicitly requests it):
+- If the user includes a clear start-on instruction like: start_on: first few words
+  then insert these two lines directly under the MAX lines (before genre:):
+  [START_ON: TRUE]
+  [START_ON: first few words]
 
-- "title": Short, catchy song title.
-    - No quotes.
-    - Max 100 characters.
+Goal:
+- Produce a high-quality, realistic, genre-appropriate Suno prompt that matches the user's descriptor while minimizing lyric/prompt bleed.
 `,
 					},
 					{
@@ -121,13 +134,9 @@ Return ONLY a JSON object with the following fields:
 
 			const enhanced = result.object;
 
-			// Update body to use custom mode with enhanced values
-			body.customMode = true;
-			body.title = enhanced.title;
-			body.style = enhanced.style;
 			// Store original prompt + enhanced tag
 			body.generation_prompt = body.prompt + ' (Enhanced)';
-			// Use enhanced lyrics as the prompt for Suno
+			// Use enhanced prompt for Suno (stays in non-custom mode)
 			body.prompt = enhanced.prompt;
 
 		} catch (enhanceError) {
@@ -203,13 +212,11 @@ Return ONLY a JSON object with the following fields:
 	}
 
 	// Forward the response with the same status code
-	// Include enhanced details if they were generated, so frontend can update placeholder
+	// Include enhanced prompt if it was generated, so frontend can see what was sent
 	return json({
 		...data,
 		recordId: requestRecordId,
-		enhanced: body.customMode && body.generation_prompt?.includes('(Enhanced)') ? {
-			title: body.title,
-			style: body.style,
+		enhanced: body.generation_prompt?.includes('(Enhanced)') ? {
 			prompt: body.prompt
 		} : undefined
 	}, { status: response.status });
@@ -282,8 +289,8 @@ function validateRequest(body: any): { valid: boolean; error?: string } {
 			return { valid: false, error: 'prompt is required in Non-custom Mode' };
 		}
 
-		if (body.prompt.length > 500) {
-			return { valid: false, error: 'prompt must be 500 characters or less in Non-custom Mode' };
+		if (body.prompt.length > 5000) {
+			return { valid: false, error: 'prompt must be 5000 characters or less in Non-custom Mode' };
 		}
 	}
 

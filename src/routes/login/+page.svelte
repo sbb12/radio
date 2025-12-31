@@ -63,8 +63,31 @@
 
 		// Authenticate with email/password
 		const authData = await pb.collection('users').authWithPassword(email, password);
-		document.cookie = `token=${authData.token}; path=/; max-age=604800; same-site=lax; http-only=false; secure=false`;
+		const token = authData.token;
 
+		// Store token in localStorage for persistence
+		if (typeof window !== 'undefined') {
+			localStorage.setItem('pb_token', token);
+		}
+
+		// Set cookie client-side (backup)
+		document.cookie = `token=${token}; path=/; max-age=${60 * 60 * 24 * 30}; same-site=lax; http-only=false; secure=false`;
+
+		// Set cookie server-side for better security
+		const resp = await fetch('/api/auth/set-cookie', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				cookie: token
+			})
+		});
+
+		if (!resp.ok) {
+			console.error('Failed to set server-side cookie');
+		}
+		
 		// Redirect to user page
 		await goto('/me');
 	}
@@ -95,7 +118,12 @@
 				.authWithOAuth2({ provider: 'discord', expand: 'user_settings_via_user' });
 			const token = authData.token;
 
-			document.cookie = `token=${token}; path=/; max-age=604800; same-site=lax; http-only=false; secure=false`;
+			// Store token in localStorage for persistence
+			if (typeof window !== 'undefined') {
+				localStorage.setItem('pb_token', token);
+			}
+
+			document.cookie = `token=${token}; path=/; max-age=${60 * 60 * 24 * 30}; same-site=lax; http-only=false; secure=false`;
 
 			const resp = await fetch('/api/auth/set-cookie', {
 				method: 'POST',
@@ -147,9 +175,12 @@
 				.authWithOAuth2({ provider: 'google', expand: 'user_settings_via_user' });
 			const token = authData.token;
 
-			console.log(token);
+			// Store token in localStorage for persistence
+			if (typeof window !== 'undefined') {
+				localStorage.setItem('pb_token', token);
+			}
 
-			document.cookie = `token=${token}; path=/; max-age=604800; same-site=lax; http-only=false; secure=false`;
+			document.cookie = `token=${token}; path=/; max-age=${60 * 60 * 24 * 30}; same-site=lax; http-only=false; secure=false`;
 
 			const resp = await fetch('/api/auth/set-cookie', {
 				method: 'POST',
@@ -166,6 +197,7 @@
 				loading = false;
 				return;
 			}
+			
 
 			await goto('/me');
 		} catch (err: any) {

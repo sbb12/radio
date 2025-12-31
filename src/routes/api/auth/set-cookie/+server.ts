@@ -17,7 +17,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			const token = tokenMatch[1];
 			cookies.set('token', token, {
 				path: '/',
-				maxAge: 60 * 60 * 24 * 7, // 7 days
+				maxAge: 60 * 60 * 24 * 30, // 30 days
 				sameSite: 'lax',
 				httpOnly: false,
 				secure: false // Set to true in production with HTTPS
@@ -31,7 +31,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				if (key === 'token' && value) {
 					cookies.set('token', value, {
 						path: '/',
-						maxAge: 60 * 60 * 24 * 7,
+						maxAge: 60 * 60 * 24 * 30, // 30 days
 						sameSite: 'lax',
 						httpOnly: false,
 						secure: false

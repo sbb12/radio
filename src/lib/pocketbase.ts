@@ -1,11 +1,36 @@
 import PocketBase from 'pocketbase';
+import { browser } from '$app/environment';
 
 let pb: PocketBase | null = null;
 let authPromise: Promise<void> | null = null;
 
 export async function getPocketBase(token?: string): Promise<PocketBase> {
 	const pb = new PocketBase("https://pb.sercan.co.uk");
-	return pb
+	
+	// Restore auth from token parameter, localStorage, or cookie
+	if (token) {
+		pb.authStore.save(token);
+	} else if (browser) {
+		// Try to restore from localStorage first
+		const storedToken = localStorage.getItem('pb_token');
+		if (storedToken) {
+			pb.authStore.save(storedToken);
+		} else {
+			// Fallback to cookie
+			const cookies = document.cookie.split(';');
+			for (const cookie of cookies) {
+				const [key, value] = cookie.trim().split('=');
+				if (key === 'token' && value) {
+					pb.authStore.save(value);
+					// Also store in localStorage for future use
+					localStorage.setItem('pb_token', value);
+					break;
+				}
+			}
+		}
+	}
+	
+	return pb;
 }
 
 

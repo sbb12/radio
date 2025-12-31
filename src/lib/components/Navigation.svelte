@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
+	import { getPocketBase } from '$lib/pocketbase';
 	import 'remixicon/fonts/remixicon.css';
 
 	let { user: initialUser } = $props();
@@ -12,9 +13,24 @@
 
 	async function handleLogout() {
 		try {
+			// Clear localStorage
+			if (typeof window !== 'undefined') {
+				localStorage.removeItem('pb_token');
+			}
+
+			// Clear PocketBase auth store
+			const pb = await getPocketBase();
+			pb.authStore.clear();
+
+			// Call logout API to clear server-side cookie
+			await fetch('/api/auth/logout', { method: 'GET' });
+
+			// Redirect to login page
 			await goto('/login');
 		} catch (err) {
 			console.error('Logout error:', err);
+			// Still redirect even if there's an error
+			await goto('/login');
 		}
 	}
 
@@ -177,3 +193,6 @@
 		{/if}
 	</div>
 </nav>
+
+
+
