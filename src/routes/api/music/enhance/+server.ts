@@ -1,8 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { AI_GATEWAY_API_KEY } from '$env/static/private';
 import { createGateway, generateObject } from 'ai';
 import { z } from 'zod';
+import { AI_GATEWAY_API_KEY } from '$env/static/private';
 
 export const POST: RequestHandler = async ({ request }) => {
     const body = await request.json();
@@ -12,21 +12,18 @@ export const POST: RequestHandler = async ({ request }) => {
         return json({ error: 'Prompt is required' }, { status: 400 });
     }
 
-    if (!AI_GATEWAY_API_KEY) {
-        return json({ error: 'Enhance feature is not available (Missing API Key)' }, { status: 503 });
-    }
-
     try {
+
         const gateway = createGateway({
             apiKey: AI_GATEWAY_API_KEY,
         });
-
+        
         const enhancedPromptSchema = z.object({
             prompt: z.string().max(5000)
         });
 
         const result = await generateObject({
-            model: gateway('openai/gpt-5.1-thinking'),
+            model: gateway('openai/gpt-5.1-instant'),
             schema: enhancedPromptSchema,
             temperature: 0.5,
             messages: [

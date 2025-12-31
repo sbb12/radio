@@ -40,6 +40,7 @@
 		"zod": "^4.1.13"
 	},
 	"dependencies": {
+		"@ai-sdk/openai": "^3.0.2",
 		"pocketbase": "^0.26.3",
 		"remixicon": "^4.7.0"
 	}
