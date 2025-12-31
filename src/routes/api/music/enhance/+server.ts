@@ -26,7 +26,7 @@ export const POST: RequestHandler = async ({ request }) => {
         });
 
         const result = await generateObject({
-            model: gateway('openai/gpt-5.2-thinking'),
+            model: gateway('openai/gpt-5.1-instant'),
             schema: enhancedPromptSchema,
             temperature: 0.5,
             messages: [
