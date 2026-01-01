@@ -2,7 +2,9 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { API_KEY, BASE_URL } from '$env/static/private';
 import { getPocketBase, validatePocketbase } from '$lib/pocketbase';
-import { generateObject } from 'ai';
+import { createGateway, generateObject } from 'ai';
+import { AI_GATEWAY_API_KEY } from '$env/static/private';
+
 import { z } from 'zod';
 
 // Suno API endpoint for music generation
@@ -56,17 +58,22 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			{ error: 'Invalid JSON in request body' },
 			{ status: 400 }
 		);
-	}
+	}	
 
 	// Handle Enhancement if requested
 	if (body.enhance && !body.customMode && body.prompt) {
 		try {
+
+			const gateway = createGateway({
+				apiKey: AI_GATEWAY_API_KEY,
+			});
+
 			const enhancedPromptSchema = z.object({
-				prompt: z.string().max(5000),
+				prompt: z.string().max(500),
 			});
 
 			const result = await generateObject({
-				model: 'openai/gpt-5',
+				model: gateway('openai/gpt-5.1-instant'),
 				schema: enhancedPromptSchema,
 				temperature: 0.5,
 				messages: [
@@ -81,6 +88,7 @@ INPUT (from the user):
 
 OUTPUT (what you must return):
 - Return ONLY a Suno prompt-style block (no explanations, no tips, no extra text).
+- max 500 characters.
 - Always include these lines at the very top, exactly as written:
   [Is_MAX_MODE: MAX](MAX)
   [QUALITY: MAX](MAX)
@@ -187,6 +195,7 @@ Goal:
 
 	// Get the response data
 	const data = await response.json();
+	console.log(data)
 
 	// Update PocketBase record with response
 	if (pb && requestRecordId) {
@@ -270,8 +279,8 @@ function validateRequest(body: any): { valid: boolean; error?: string } {
 					return { valid: false, error: 'prompt must be 3000 characters or less for V3_5 and V4 models' };
 				}
 			} else {
-				if (body.prompt.length > 5000) {
-					return { valid: false, error: 'prompt must be 5000 characters or less for V4_5, V4_5PLUS, and V5 models' };
+				if (body.prompt.length > 500) {
+					return { valid: false, error: 'prompt must be 500 characters or less for V4_5, V4_5PLUS, and V5 models' };
 				}
 			}
 		}
@@ -281,8 +290,8 @@ function validateRequest(body: any): { valid: boolean; error?: string } {
 			return { valid: false, error: 'prompt is required in Non-custom Mode' };
 		}
 
-		if (body.prompt.length > 5000) {
-			return { valid: false, error: 'prompt must be 5000 characters or less in Non-custom Mode' };
+		if (body.prompt.length > 500) {
+			return { valid: false, error: 'prompt must be 500 characters or less in Non-custom Mode' };
 		}
 	}
 

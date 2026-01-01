@@ -222,13 +222,13 @@
 			}
 
 			// Update placeholder if enhanced
-			if (result.enhanced) {
-				generatingPlaceholder = {
-					...generatingPlaceholder,
-					title: result.enhanced.title,
-					tags: result.enhanced.style
-				};
-			}
+			// if (result.enhanced) {
+			// 	generatingPlaceholder = {
+			// 		...generatingPlaceholder,
+			// 		title: result.enhanced.title,
+			// 		tags: result.enhanced.style
+			// 	};
+			// }
 
 			success = 'Song generation started! It will take a moment';
 
@@ -371,11 +371,11 @@
 									required
 									placeholder="e.g., A upbeat electronic dance track with catchy melodies..."
 									rows="4"
-									maxlength="5000"
+									maxlength="500"
 									class="input-field"
 								></textarea>
 								<p class="mt-1 text-xs text-gray-400">
-									{prompt.length}/5000 characters
+									{prompt.length}/500 characters
 								</p>
 
 								<div class="mt-2" class:hidden={instrumental}>
@@ -464,11 +464,11 @@
 										bind:value={lyrics}
 										placeholder="Enter lyrics here, or leave empty for instrumental..."
 										rows="6"
-										maxlength="5000"
+										maxlength="500"
 										class="input-field"
 									></textarea>
 									<p class="mt-1 text-xs text-gray-400">
-										{lyrics.length}/5000 characters
+										{lyrics.length}/500 characters
 									</p>
 								</div>
 							{/if}

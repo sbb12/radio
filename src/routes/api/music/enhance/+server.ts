@@ -12,14 +12,39 @@ export const POST: RequestHandler = async ({ request }) => {
         return json({ error: 'Prompt is required' }, { status: 400 });
     }
 
+    console.log(new Date().toISOString(), 'Enhance request received');
+
     try {
 
         const gateway = createGateway({
             apiKey: AI_GATEWAY_API_KEY,
         });
-        
+
+        const availableModels = await gateway.getAvailableModels();
+
+        availableModels.models.forEach((model) => {
+            console.log(`${model.id}: ${model.name}`);
+            if (model.description) {
+                console.log(`  Description: ${model.description}`);
+            }
+            if (model.pricing) {
+                console.log(`  Input: $${model.pricing.input}/token`);
+                console.log(`  Output: $${model.pricing.output}/token`);
+                if (model.pricing.cachedInputTokens) {
+                    console.log(
+                        `  Cached input (read): $${model.pricing.cachedInputTokens}/token`,
+                    );
+                }
+                if (model.pricing.cacheCreationInputTokens) {
+                    console.log(
+                        `  Cache creation (write): $${model.pricing.cacheCreationInputTokens}/token`,
+                    );
+                }
+            }
+        });
+
         const enhancedPromptSchema = z.object({
-            prompt: z.string().max(5000)
+            prompt: z.string().max(500)
         });
 
         const result = await generateObject({
