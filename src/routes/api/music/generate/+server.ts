@@ -42,10 +42,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	} = await validatePocketbase(token)
 
 	if (!pb) {
-		return error(401, 'missing auth')
+		return json({ error: 'Please log in to generate music' }, { status: 401 });
 	}
 	if (!valid) {
-		return error(403, 'unauthorised user')
+		return json({ error: 'Unauthorized user' }, { status: 403 });
 	}
 
 	const user_id = pb.authStore.record!.id
@@ -99,9 +99,7 @@ OUTPUT (what you must return):
   genre:
   instruments:
   vocals:
-  tempo & feel:
-  arrangement cues:
-  mix & production:
+  tempo & feel:  
 
 Formatting rules (critical):
 - Keep everything "metadata-ish": compact noun phrases, comma-separated.
@@ -176,7 +174,7 @@ Goal:
 		console.log('Saved generation request to PocketBase:', requestRecordId);
 	} catch (e) {
 		console.error('Error saving request to PocketBase:', e);
-		return error(500)
+		return json({ error: 'Failed to save generation request' }, { status: 500 });
 	}
 
 	// Prepare headers for the Suno API request

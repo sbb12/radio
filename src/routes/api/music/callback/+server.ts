@@ -88,6 +88,35 @@ export const POST: RequestHandler = async ({ request }) => {
         }
 
 
+        // Update the radio_generate_requests record with callback status
+        try {
+            const requestRecord = await pb
+                .collection('radio_generate_requests')
+                .getFirstListItem(`taskId = "${task_id}"`);
+            
+            if (requestRecord) {
+                const updateData: any = {
+                    callback_type: callbackType,
+                    callback_code: code,
+                    callback_msg: msg
+                };
+                
+                if (code === 200 && callbackType === 'complete') {
+                    updateData.status = 'complete';
+                } else if (code !== 200) {
+                    updateData.status = 'failed';
+                    updateData.error_code = code;
+                    updateData.error_msg = msg;
+                }
+                
+                await pb.collection('radio_generate_requests').update(requestRecord.id, updateData);
+                console.log('Updated generate request status:', requestRecord.id, updateData.status || 'processing');
+            }
+        } catch (requestUpdateError) {
+            console.error('Error updating generate request status:', requestUpdateError);
+            // Continue processing even if this update fails
+        }
+
         // Handle different callback types and status codes
         if (code === 200) {
             // Task completed successfully

@@ -11,6 +11,7 @@
 		updatePlaylistInStore,
 		removePlaylistFromStore
 	} from '$lib/stores/playlists';
+	import { toasts } from '$lib/stores/toast';
 	import { getPocketBase } from '$lib/pocketbase';
 	import type PocketBase from 'pocketbase';
 	import { onMount, onDestroy } from 'svelte';
@@ -46,10 +47,13 @@
 
 	// UI state
 	let isGenerating = $state(false);
-	let error = $state<string | null>(null);
-	let success = $state<string | null>(null);
 	let generatingPlaceholder = $state<any>(null);
 	let loadedFromStorage = $state(false);
+	
+	// Track current generation request for status updates
+	let currentRequestId = $state<string | null>(null);
+	let slowGenerationTimer: ReturnType<typeof setTimeout> | null = null;
+	let slowToastShown = $state(false);
 
 	// Available models
 	const models = ['V3_5', 'V4', 'V4_5', 'V4_5PLUS', 'V5'];
@@ -140,17 +144,26 @@
 	});
 
 	onDestroy(() => {
+		if (slowGenerationTimer) {
+			clearTimeout(slowGenerationTimer);
+		}
 		if (pb) {
 			pb.collection('radio_music_tracks').unsubscribe();
 			pb.collection('radio_playlists').unsubscribe();
+			pb.collection('radio_generate_requests').unsubscribe();
 		}
 	});
 
 	async function handleGenerate(event: SubmitEvent) {
 		event.preventDefault();
-		error = null;
-		success = null;
 		isGenerating = true;
+		slowToastShown = false;
+
+		// Clear any previous slow timer
+		if (slowGenerationTimer) {
+			clearTimeout(slowGenerationTimer);
+			slowGenerationTimer = null;
+		}
 
 		// Set placeholder immediately
 		generatingPlaceholder = {
@@ -172,13 +185,13 @@
 
 			if (customMode) {
 				if (!style.trim()) {
-					error = 'Style is required in Custom Mode';
+					toasts.add('Style is required in Custom Mode', 'error');
 					isGenerating = false;
 					generatingPlaceholder = null;
 					return;
 				}
 				if (!title.trim()) {
-					error = 'Title is required in Custom Mode';
+					toasts.add('Title is required in Custom Mode', 'error');
 					isGenerating = false;
 					generatingPlaceholder = null;
 					return;
@@ -190,7 +203,7 @@
 				}
 			} else {
 				if (!prompt.trim()) {
-					error = 'Prompt is required';
+					toasts.add('Prompt is required', 'error');
 					isGenerating = false;
 					generatingPlaceholder = null;
 					return;
@@ -205,46 +218,97 @@
 			if (audioWeight !== undefined) requestBody.audioWeight = audioWeight;
 			if (negativeTags.trim()) requestBody.negativeTags = negativeTags.trim();
 
-			const response = await fetch('/api/music/generate', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify(requestBody)
-			});
-
-			const result = await response.json();
-
-			if (!response.ok) {
-				error = result.error || 'Failed to generate song';
+			let response: Response;
+			try {
+				response = await fetch('/api/music/generate', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify(requestBody)
+				});
+			} catch (networkErr) {
+				console.error('Network error:', networkErr);
+				toasts.add('Network error. Please check your connection and try again.', 'error');
+				isGenerating = false;
 				generatingPlaceholder = null;
 				return;
 			}
 
-			// Update placeholder if enhanced
-			// if (result.enhanced) {
-			// 	generatingPlaceholder = {
-			// 		...generatingPlaceholder,
-			// 		title: result.enhanced.title,
-			// 		tags: result.enhanced.style
-			// 	};
-			// }
+			// Safely parse JSON response
+			let result: any;
+			try {
+				result = await response.json();
+			} catch (jsonErr) {
+				// Response wasn't JSON - try to get text for debugging
+				console.error('Failed to parse response as JSON:', jsonErr);
+				const errorMsg = `Failed to generate (HTTP ${response.status})`;
+				toasts.add(errorMsg, 'error');
+				isGenerating = false;
+				generatingPlaceholder = null;
+				return;
+			}
 
-			success = 'Song generation started! It will take a moment';
+			if (!response.ok) {
+				const errorMsg = result.error || `Failed to generate song (HTTP ${response.status})`;
+				toasts.add(errorMsg, 'error');
+				isGenerating = false;
+				generatingPlaceholder = null;
+				return;
+			}
 
-			setTimeout(() => {
-				success = null;
-			}, 10000);
+			// Store the request ID for tracking status
+			currentRequestId = result.recordId;
+
+			// Subscribe to this specific request for status updates
+			if (currentRequestId && pb) {
+				pb.collection('radio_generate_requests').subscribe(currentRequestId, (e) => {
+					if (e.record.status === 'failed') {
+						const errorMsg = e.record.error_msg || 'Generation failed. Please try again.';
+						toasts.add(errorMsg, 'error');
+						generatingPlaceholder = null;
+						isGenerating = false;
+						currentRequestId = null;
+						
+						// Clear slow timer
+						if (slowGenerationTimer) {
+							clearTimeout(slowGenerationTimer);
+							slowGenerationTimer = null;
+						}
+						
+						// Unsubscribe from this request
+						pb.collection('radio_generate_requests').unsubscribe(e.record.id);
+					} else if (e.record.status === 'complete') {
+						// Generation complete - placeholder will be cleared by track subscription
+						isGenerating = false;
+						currentRequestId = null;
+						
+						// Clear slow timer
+						if (slowGenerationTimer) {
+							clearTimeout(slowGenerationTimer);
+							slowGenerationTimer = null;
+						}
+						
+						// Unsubscribe from this request
+						pb.collection('radio_generate_requests').unsubscribe(e.record.id);
+					}
+				});
+			}
+
+			// Start slow generation timer (90 seconds)
+			slowGenerationTimer = setTimeout(() => {
+				if (isGenerating && !slowToastShown) {
+					slowToastShown = true;
+					toasts.add('Generation is taking longer than usual. Please wait...', 'info', 10000);
+				}
+			}, 90000);
+
+			toasts.add('Song generation started!', 'success');
 		} catch (err: any) {
 			console.error('Generation error:', err);
-			error = err.message || 'Failed to generate song';
-		} finally {
-			if (isGenerating) {
-				setTimeout(() => {
-					isGenerating = false;
-					error = null;
-				}, 10000);
-			}
+			toasts.add(err.message || 'Failed to generate song', 'error');
+			isGenerating = false;
+			generatingPlaceholder = null;
 		}
 	}
 
@@ -304,20 +368,6 @@
 			<div class="custom-scrollbar pb-32 lg:h-full lg:overflow-y-auto">
 				<div class="card">
 					<h2 class="mb-6 text-2xl font-bold text-white">Generate New Song</h2>
-
-					<!-- Error Message -->
-					{#if error}
-						<div class="mb-6 rounded-lg border border-red-500/50 bg-red-500/20 p-4">
-							<p class="text-sm text-red-200">{error}</p>
-						</div>
-					{/if}
-
-					<!-- Success Message -->
-					{#if success}
-						<div class="mb-6 rounded-lg border border-green-500/50 bg-green-500/20 p-4">
-							<p class="text-sm text-green-200">{success}</p>
-						</div>
-					{/if}
 
 					<form onsubmit={handleGenerate} class="space-y-6">
 						<!-- Mode Selection -->
