@@ -11,7 +11,6 @@
 		updatePlaylistInStore,
 		removePlaylistFromStore
 	} from '$lib/stores/playlists';
-	import { toasts } from '$lib/stores/toast';
 	import { getPocketBase } from '$lib/pocketbase';
 	import type PocketBase from 'pocketbase';
 	import { onMount, onDestroy } from 'svelte';
@@ -47,13 +46,18 @@
 
 	// UI state
 	let isGenerating = $state(false);
-	let generatingPlaceholder = $state<any>(null);
+	let error = $state<string | null>(null);
+	let success = $state<string | null>(null);
+	let generatingPlaceholders = $state<Array<{
+		id: string;
+		taskId: string;
+		title: string;
+		model_name: string;
+		tags: string;
+		image_url: null;
+		status: string;
+	}>>([]);
 	let loadedFromStorage = $state(false);
-	
-	// Track current generation request for status updates
-	let currentRequestId = $state<string | null>(null);
-	let slowGenerationTimer: ReturnType<typeof setTimeout> | null = null;
-	let slowToastShown = $state(false);
 
 	// Available models
 	const models = ['V3_5', 'V4', 'V4_5', 'V4_5PLUS', 'V5'];
@@ -91,8 +95,12 @@
 				const currentQ = get(queue);
 				queue.set([newTrack, ...currentQ]);
 
-				// Remove placeholder if it exists
-				generatingPlaceholder = null;
+				// Remove placeholder matching this task_id
+				if (e.record.task_id) {
+					generatingPlaceholders = generatingPlaceholders.filter(
+						(p) => p.taskId !== e.record.task_id
+					);
+				}
 			} else if (e.action === 'update') {
 				if (e.record.deleted) {
 					tracks = tracks.filter((t) => t.id !== e.record.id);
@@ -144,9 +152,6 @@
 	});
 
 	onDestroy(() => {
-		if (slowGenerationTimer) {
-			clearTimeout(slowGenerationTimer);
-		}
 		if (pb) {
 			pb.collection('radio_music_tracks').unsubscribe();
 			pb.collection('radio_playlists').unsubscribe();
@@ -156,23 +161,15 @@
 
 	async function handleGenerate(event: SubmitEvent) {
 		event.preventDefault();
+		error = null;
+		success = null;
 		isGenerating = true;
-		slowToastShown = false;
 
-		// Clear any previous slow timer
-		if (slowGenerationTimer) {
-			clearTimeout(slowGenerationTimer);
-			slowGenerationTimer = null;
-		}
-
-		// Set placeholder immediately
-		generatingPlaceholder = {
-			id: 'generating',
+		// Prepare placeholder data (will add taskId once we get response)
+		const placeholderData = {
 			title: customMode ? title : 'Untitled',
 			model_name: model,
-			tags: customMode ? style : prompt,
-			image_url: null,
-			status: 'generating'
+			tags: customMode ? style : prompt
 		};
 
 		try {
@@ -185,15 +182,13 @@
 
 			if (customMode) {
 				if (!style.trim()) {
-					toasts.add('Style is required in Custom Mode', 'error');
+					error = 'Style is required in Custom Mode';
 					isGenerating = false;
-					generatingPlaceholder = null;
 					return;
 				}
 				if (!title.trim()) {
-					toasts.add('Title is required in Custom Mode', 'error');
+					error = 'Title is required in Custom Mode';
 					isGenerating = false;
-					generatingPlaceholder = null;
 					return;
 				}
 				requestBody.style = style.trim();
@@ -203,9 +198,8 @@
 				}
 			} else {
 				if (!prompt.trim()) {
-					toasts.add('Prompt is required', 'error');
+					error = 'Prompt is required';
 					isGenerating = false;
-					generatingPlaceholder = null;
 					return;
 				}
 				requestBody.prompt = prompt.trim();
@@ -229,9 +223,8 @@
 				});
 			} catch (networkErr) {
 				console.error('Network error:', networkErr);
-				toasts.add('Network error. Please check your connection and try again.', 'error');
+				error = 'Network error. Please check your connection and try again.';
 				isGenerating = false;
-				generatingPlaceholder = null;
 				return;
 			}
 
@@ -240,75 +233,63 @@
 			try {
 				result = await response.json();
 			} catch (jsonErr) {
-				// Response wasn't JSON - try to get text for debugging
 				console.error('Failed to parse response as JSON:', jsonErr);
-				const errorMsg = `Failed to generate (HTTP ${response.status})`;
-				toasts.add(errorMsg, 'error');
+				error = `Failed to generate (HTTP ${response.status})`;
 				isGenerating = false;
-				generatingPlaceholder = null;
 				return;
 			}
 
 			if (!response.ok) {
-				const errorMsg = result.error || `Failed to generate song (HTTP ${response.status})`;
-				toasts.add(errorMsg, 'error');
+				error = result.error || `Failed to generate song (HTTP ${response.status})`;
 				isGenerating = false;
-				generatingPlaceholder = null;
 				return;
 			}
 
-			// Store the request ID for tracking status
-			currentRequestId = result.recordId;
+			// Get task ID from result
+			const taskId = result.data?.taskId || result.recordId;
+			
+			// Add placeholder with task ID
+			generatingPlaceholders = [
+				{
+					id: `generating-${taskId}`,
+					taskId: taskId,
+					title: placeholderData.title,
+					model_name: placeholderData.model_name,
+					tags: placeholderData.tags,
+					image_url: null,
+					status: 'generating'
+				},
+				...generatingPlaceholders
+			];
 
-			// Subscribe to this specific request for status updates
-			if (currentRequestId && pb) {
-				pb.collection('radio_generate_requests').subscribe(currentRequestId, (e) => {
+			// Subscribe to this specific request for status updates (for callback failures)
+			if (result.recordId && pb) {
+				pb.collection('radio_generate_requests').subscribe(result.recordId, (e) => {
 					if (e.record.status === 'failed') {
 						const errorMsg = e.record.error_msg || 'Generation failed. Please try again.';
-						toasts.add(errorMsg, 'error');
-						generatingPlaceholder = null;
-						isGenerating = false;
-						currentRequestId = null;
-						
-						// Clear slow timer
-						if (slowGenerationTimer) {
-							clearTimeout(slowGenerationTimer);
-							slowGenerationTimer = null;
-						}
-						
-						// Unsubscribe from this request
+						error = errorMsg;
+						// Remove this placeholder
+						generatingPlaceholders = generatingPlaceholders.filter(
+							(p) => p.taskId !== e.record.taskId
+						);
 						pb.collection('radio_generate_requests').unsubscribe(e.record.id);
 					} else if (e.record.status === 'complete') {
-						// Generation complete - placeholder will be cleared by track subscription
-						isGenerating = false;
-						currentRequestId = null;
-						
-						// Clear slow timer
-						if (slowGenerationTimer) {
-							clearTimeout(slowGenerationTimer);
-							slowGenerationTimer = null;
-						}
-						
-						// Unsubscribe from this request
+						// Placeholder will be removed by track subscription
 						pb.collection('radio_generate_requests').unsubscribe(e.record.id);
 					}
 				});
 			}
 
-			// Start slow generation timer (90 seconds)
-			slowGenerationTimer = setTimeout(() => {
-				if (isGenerating && !slowToastShown) {
-					slowToastShown = true;
-					toasts.add('Generation is taking longer than usual. Please wait...', 'info', 10000);
-				}
-			}, 90000);
+			success = 'Song generation started! It will take a moment';
+			isGenerating = false;
 
-			toasts.add('Song generation started!', 'success');
+			setTimeout(() => {
+				success = null;
+			}, 15000);
 		} catch (err: any) {
 			console.error('Generation error:', err);
-			toasts.add(err.message || 'Failed to generate song', 'error');
+			error = err.message || 'Failed to generate song';
 			isGenerating = false;
-			generatingPlaceholder = null;
 		}
 	}
 
@@ -368,6 +349,20 @@
 			<div class="custom-scrollbar pb-32 lg:h-full lg:overflow-y-auto">
 				<div class="card">
 					<h2 class="mb-6 text-2xl font-bold text-white">Generate New Song</h2>
+
+					<!-- Error Message -->
+					{#if error}
+						<div class="mb-6 rounded-lg border border-red-500/50 bg-red-500/20 p-4">
+							<p class="text-sm text-red-200">{error}</p>
+						</div>
+					{/if}
+
+					<!-- Success Message -->
+					{#if success}
+						<div class="mb-6 rounded-lg border border-green-500/50 bg-green-500/20 p-4">
+							<p class="text-sm text-green-200">{success}</p>
+						</div>
+					{/if}
 
 					<form onsubmit={handleGenerate} class="space-y-6">
 						<!-- Mode Selection -->
@@ -646,56 +641,56 @@
 			<!-- Middle Column: My Songs -->
 			<div class="flex flex-col lg:h-full lg:overflow-hidden">
 				<h2 class="mb-6 flex-none text-2xl font-bold text-white">My Songs</h2>
-				{#if tracks.length === 0 && !generatingPlaceholder}
-					<div class="rounded-lg border border-white/10 bg-white/5 p-8 text-center">
-						<div class="mb-4 flex justify-center">
-							<div class="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
-								<i class="ri-music-2-line text-3xl text-gray-400"></i>
-							</div>
+			{#if tracks.length === 0 && generatingPlaceholders.length === 0}
+				<div class="rounded-lg border border-white/10 bg-white/5 p-8 text-center">
+					<div class="mb-4 flex justify-center">
+						<div class="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
+							<i class="ri-music-2-line text-3xl text-gray-400"></i>
 						</div>
-						<h3 class="mb-2 text-lg font-medium text-white">No songs yet</h3>
-						<p class="text-gray-400">Create your first song using the form on the left!</p>
 					</div>
-				{:else}
-					<div class="custom-scrollbar flex-1 space-y-2 overflow-y-auto pb-32">
-						{#if generatingPlaceholder}
-							<div
-								class="group relative animate-pulse overflow-hidden rounded-xl border border-purple-500/30 bg-white/5 p-1"
-							>
-								<div class="flex gap-4">
-									<!-- Image Placeholder -->
-									<div
-										class="relative flex h-24 w-24 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-800"
-									>
-										<i class="ri-loader-4-line animate-spin text-3xl text-purple-500"></i>
+					<h3 class="mb-2 text-lg font-medium text-white">No songs yet</h3>
+					<p class="text-gray-400">Create your first song using the form on the left!</p>
+				</div>
+			{:else}
+				<div class="custom-scrollbar flex-1 space-y-2 overflow-y-auto pb-32">
+					{#each generatingPlaceholders as placeholder (placeholder.id)}
+						<div
+							class="group relative animate-pulse overflow-hidden rounded-xl border border-purple-500/30 bg-white/5 p-1"
+						>
+							<div class="flex gap-4">
+								<!-- Image Placeholder -->
+								<div
+									class="relative flex h-24 w-24 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-800"
+								>
+									<i class="ri-loader-4-line animate-spin text-3xl text-purple-500"></i>
+								</div>
+
+								<!-- Content -->
+								<div class="flex min-w-0 flex-1 flex-col justify-between gap-1 py-1">
+									<div>
+										<h3 class="truncate text-lg font-bold text-white">
+											{placeholder.title}
+										</h3>
 									</div>
 
-									<!-- Content -->
-									<div class="flex min-w-0 flex-1 flex-col justify-between gap-1 py-1">
-										<div>
-											<h3 class="truncate text-lg font-bold text-white">
-												{generatingPlaceholder.title}
-											</h3>
-										</div>
+									<div class="flex items-center gap-2">
+										<p class="line-clamp-1 text-sm text-gray-400">
+											{placeholder.tags}
+										</p>
+									</div>
 
-										<div class="flex items-center gap-2">
-											<p class="line-clamp-1 text-sm text-gray-400">
-												{generatingPlaceholder.tags}
-											</p>
-										</div>
-
-										<div>
-											<span
-												class="rounded bg-purple-500/20 px-1.5 py-0.5 text-[10px] text-purple-300"
-												>Generating</span
-											>
-										</div>
+									<div>
+										<span
+											class="rounded bg-purple-500/20 px-1.5 py-0.5 text-[10px] text-purple-300"
+											>Generating</span
+										>
 									</div>
 								</div>
 							</div>
-						{/if}
+						</div>
+					{/each}
 
-						<SongList
+					<SongList
 							{tracks}
 							onAddToPlaylist={openPlaylistModal}
 							userReactions={data.userReactions}
