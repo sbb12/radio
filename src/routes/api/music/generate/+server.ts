@@ -60,8 +60,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		);
 	}	
 
-	// Handle Enhancement if requested
-	if (body.enhance && !body.customMode && body.prompt) {
+	// Always enhance in simple mode (non-custom mode)
+	if (!body.customMode && body.prompt) {
 		try {
 
 			const gateway = createGateway({
@@ -139,14 +139,20 @@ Goal:
 
 		} catch (enhanceError) {
 			console.error('Enhance error:', enhanceError);
-			return json(
-				{ error: 'Failed to enhance prompt. Please try again or disable enhance.' },
-				{ status: 500 }
-			);
+			
+			// If user explicitly requested enhance, return error
+			// Otherwise, silently fall back to original prompt
+			if (body.enhance) {
+				return json(
+					{ error: 'Failed to enhance prompt. Please try again or disable enhance.' },
+					{ status: 500 }
+				);
+			}
+			
+			// Fall back to original prompt
+			console.log('Enhancement failed, using original prompt');
+			body.generation_prompt = body.prompt;
 		}
-	} else if (!body.customMode && body.prompt) {
-		// If not enhancing and simple mode, set generation_prompt
-		body.generation_prompt = body.prompt;
 	}
 
 	body.callBackUrl = `https://radio.sercan.co.uk/api/music/callback`;

@@ -212,6 +212,9 @@
 			if (audioWeight !== undefined) requestBody.audioWeight = audioWeight;
 			if (negativeTags.trim()) requestBody.negativeTags = negativeTags.trim();
 
+			
+			success = 'Song generation started! It will take a moment';
+			
 			let response: Response;
 			try {
 				response = await fetch('/api/music/generate', {
@@ -236,12 +239,14 @@
 				console.error('Failed to parse response as JSON:', jsonErr);
 				error = `Failed to generate (HTTP ${response.status})`;
 				isGenerating = false;
+				success = null;
 				return;
 			}
 
 			if (!response.ok) {
 				error = result.error || `Failed to generate song (HTTP ${response.status})`;
 				isGenerating = false;
+				success = null;
 				return;
 			}
 
@@ -278,13 +283,11 @@
 						pb.collection('radio_generate_requests').unsubscribe(e.record.id);
 					}
 				});
-			}
-
-			success = 'Song generation started! It will take a moment';
-			isGenerating = false;
+			}			
 
 			setTimeout(() => {
 				success = null;
+				isGenerating = false;
 			}, 15000);
 		} catch (err: any) {
 			console.error('Generation error:', err);
