@@ -316,11 +316,19 @@
 {#if track}
 	<!-- Playlist Modal -->
 	{#if showPlaylistModal}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+			onclick={() => (showPlaylistModal = false)}
 		>
-			<div class="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
-				<div class="mb-6 flex items-center justify-between">
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl"
+			onclick={(e) => e.stopPropagation()}
+		>
+			<div class="mb-6 flex items-center justify-between">
 					<h3 class="text-xl font-bold text-white">Add to Playlist</h3>
 					<button
 						class="text-gray-400 hover:text-white"
