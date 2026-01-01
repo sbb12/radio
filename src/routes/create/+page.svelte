@@ -91,9 +91,28 @@
 				};
 				tracks = [newTrack, ...tracks];
 
-				// Add to front of queue
+				// Add to queue AFTER the currently playing track (so it plays next)
 				const currentQ = get(queue);
-				queue.set([newTrack, ...currentQ]);
+				const current = get(currentTrack);
+				
+				if (current) {
+					const currentIndex = currentQ.findIndex((t) => t.id === current.id);
+					if (currentIndex !== -1) {
+						// Insert after current track
+						const newQueue = [
+							...currentQ.slice(0, currentIndex + 1),
+							newTrack,
+							...currentQ.slice(currentIndex + 1)
+						];
+						queue.set(newQueue);
+					} else {
+						// Current track not in queue, add to front
+						queue.set([newTrack, ...currentQ]);
+					}
+				} else {
+					// No current track, add to front
+					queue.set([newTrack, ...currentQ]);
+				}
 
 				// Remove placeholder matching this task_id
 				if (e.record.task_id) {
