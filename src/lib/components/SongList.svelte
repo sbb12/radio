@@ -140,8 +140,8 @@
 						</div>
 					</div>
 
-					<!-- Actions -->
-					<div class="flex items-center gap-2">
+					<!-- Actions - hidden on mobile -->
+					<div class="hidden items-center gap-2 md:flex">
 						{#if !playlistMode}
 							<button
 								class="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 transition-all {$userReactions[

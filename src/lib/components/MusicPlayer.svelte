@@ -462,7 +462,7 @@
 					</div>
 				{/if}
 				<div class="min-w-0 flex-1 overflow-hidden">
-					<h3 class="truncate text-sm font-bold text-white">{track.title}</h3>
+					<button class="truncate text-sm font-bold text-white cursor-pointer" onclick={() => goto(`/track/${track!.id}`)} >{track.title}</button>
 					<p class="truncate text-xs text-gray-400">
 						{track.model_name === 'chirp-crow' ? 'V5' : track.model_name || 'Unknown Model'}
 					</p>

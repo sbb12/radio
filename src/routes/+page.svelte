@@ -61,15 +61,20 @@
 				<h1
 					class="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-4xl font-extrabold text-transparent sm:text-7xl"
 				>
-					Lofi Radio
+					Radio
 				</h1>
 				<p class="mt-2 text-lg text-gray-400 sm:mt-4 sm:text-xl">
-					Chill beats for focus and relaxation
+					Shuffle through community favorites
 				</p>
 			</div>
 
 			{#if tracks.length === 0}
-				<div></div>
+				<div class="rounded-2xl border border-white/10 bg-white/5 p-8 text-center">
+					<i class="ri-heart-line mb-4 text-5xl text-gray-500"></i>
+					<p class="text-lg text-gray-400">
+						No liked songs yet. Be the first to like some tracks!
+					</p>
+				</div>
 			{:else}
 				<div class="relative mb-8 sm:mb-16">
 					<!-- Pulsing glow effect behind the play button -->
@@ -141,7 +146,7 @@
 									</div>
 									<div class="mt-6 text-center">
 										<h2 class="text-2xl font-bold text-white">{$currentTrack.title}</h2>
-										<p class="text-purple-300">{$currentTrack.tags || 'Lofi Vibes'}</p>
+										<p class="text-purple-300">{$currentTrack.tags || 'Unknown'}</p>
 									</div>
 								</div>
 

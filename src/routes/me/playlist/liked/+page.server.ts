@@ -15,6 +15,7 @@ export const load: PageServerLoad = async ({ locals }) => {
         // Fetch liked tracks
         const reactions = await pb.collection('radio_user_track_reaction').getFullList({
             filter: `user="${locals.user.id}" && reaction="like"`,
+            sort: '-created',
             expand: 'track'
         });
 

@@ -6,18 +6,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 	let tracks: any[] = [];
 
 	try {
-		// Fetch tracks that match "lofi" in tags or title
-		// If you want ALL tracks to be candidates for the radio, remove the filter.
-		// But the user specifically asked for "lofi" songs.
-		tracks = await pb.collection('radio_music_tracks').getFullList({
-			sort: '-created',
-			filter: 'generation_prompt ~ "lofi" && generation_prompt ~ "christmas" && deleted = false'
+		// Fetch ALL liked songs from all users
+		const reactions = await pb.collection('radio_user_track_reaction').getFullList({
+			filter: `reaction="like"`,
+			expand: 'track'
 		});
 
-		// If no lofi tracks found, maybe fallback to all tracks? 
-		// For now, let's stick to the request. If empty, the UI will show empty state.
+		// Extract unique tracks from reactions and filter out deleted ones
+		const trackMap = new Map();
+		for (const r of reactions) {
+			const track = r.expand?.track;
+			if (track && !track.deleted && !trackMap.has(track.id)) {
+				trackMap.set(track.id, track);
+			}
+		}
+		tracks = Array.from(trackMap.values());
 	} catch (e) {
-		console.error('Error fetching radio tracks:', e);
+		console.error('Error fetching liked tracks:', e);
 	}
 
 	return {
