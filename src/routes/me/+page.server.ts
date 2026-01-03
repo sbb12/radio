@@ -14,14 +14,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 
     try {
         // Fetch tracks
-        const trackRecords = await pb.collection('radio_music_tracks').getList(1, 50, {
+        const trackRecords = await pb.collection('radio_music_tracks').getFullList({
             filter: `user = "${locals.user.id}" && deleted != true`,
             sort: '-created'
         });
 
-        tracks = trackRecords.items
-
-
+        tracks = trackRecords
 
     } catch (e) {
         console.error('Error fetching user data:', e);
@@ -30,9 +28,8 @@ export const load: PageServerLoad = async ({ locals }) => {
     let userReactions = {};
     try {
         if (tracks.length > 0) {
-            const trackIds = tracks.map(t => `track="${t.id}"`).join(' || ');
             const reactions = await pb.collection('radio_user_track_reaction').getFullList({
-                filter: `user="${locals.user.id}" && (${trackIds})`
+                filter: `user="${locals.user.id}"`
             });
 
             userReactions = reactions.reduce((acc: any, r: any) => {

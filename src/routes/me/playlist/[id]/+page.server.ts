@@ -13,14 +13,14 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     try {
         const playlist = await pb.collection('radio_playlists').getOne(playlistId);
 
-        const playlistTracks = await pb.collection('radio_playlist_track').getList(1, 200, {
+        const playlistTracks = await pb.collection('radio_playlist_track').getFullList({
             filter: `playlist = "${playlistId}"`,
             expand: 'track',
             sort: '-created'
         });
 
         // Map the playlist tracks to get the actual track data, adding the playlist_track id for deletion
-        const songs = playlistTracks.items.map(item => {
+        const songs = playlistTracks.map(item => {
             const track = item.expand?.track;
             if (track && !track.deleted) {
                 return {
@@ -34,9 +34,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
         let userReactions = {};
         if (songs.length > 0) {
             try {
-                const trackIds = songs.map((t: any) => `track="${t.id}"`).join(' || ');
                 const reactions = await pb.collection('radio_user_track_reaction').getFullList({
-                    filter: `user="${locals.user.id}" && (${trackIds})`
+                    filter: `user="${locals.user.id}"`
                 });
                 userReactions = reactions.reduce((acc: any, r: any) => {
                     acc[r.track] = r.reaction;

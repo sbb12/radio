@@ -7,25 +7,21 @@ export const load: PageServerLoad = async ({ locals }) => {
     let tracks: any[] = [];
 
     try {
-        const records = await pb.collection('radio_music_tracks').getList(1, 50, {
+        const records = await pb.collection('radio_music_tracks').getFullList({
             filter: `user = "${locals.user.id}" && deleted != true`,
             sort: '-created'
         });
-
-        tracks = records.items;
+        
+        tracks = records;
     } catch (e) {
         console.error('Error fetching user tracks:', e);
     }
 
     let userReactions = {};
     try {
-        if (tracks.length > 0) {
-            const trackIds = tracks.map(t => `track="${t.id}"`).join(' || ');
-            // PocketBase filter length limit might be an issue if too many tracks, but for 50 it should be fine.
-            // If it fails, we might need to fetch all user reactions or chunk it.
-            // For 50 tracks, the filter string length is roughly 50 * (25 chars) = 1250 chars, which is fine.
+        if (tracks.length > 0) {            
             const reactions = await pb.collection('radio_user_track_reaction').getFullList({
-                filter: `user="${locals.user.id}" && (${trackIds})`
+                filter: `user="${locals.user.id}"`
             });
 
             userReactions = reactions.reduce((acc: any, r: any) => {
